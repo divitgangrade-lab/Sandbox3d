@@ -115,8 +115,9 @@ export class SaveStore {
 
   delete(id: string): void {
     const storage = assertStorage();
-    storage.removeItem(`${SLOT_PREFIX}${id}`);
+    // Drop the index entry first so a failed write cannot leave a row pointing at a missing slot.
     this.writeIndex(this.readIndex().filter((slot) => slot.id !== id));
+    storage.removeItem(`${SLOT_PREFIX}${id}`);
   }
 
   clear(): void {

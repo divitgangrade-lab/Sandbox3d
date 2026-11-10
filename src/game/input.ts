@@ -141,7 +141,11 @@ export class Input {
       target instanceof HTMLSelectElement ||
       target?.isContentEditable;
     if (typing) {
-      if (event.code === 'Escape') (target as HTMLElement).blur();
+      if (event.code === 'Escape') {
+        // Let the game close an open overlay, then drop focus from the field.
+        if (!event.repeat) this.justPressed.add('Escape');
+        (target as HTMLElement).blur();
+      }
       return;
     }
     if (!event.repeat) this.justPressed.add(event.code);

@@ -109,6 +109,8 @@ export class UI {
   private activeCategory: Category | 'all' = 'all';
   private selectedId = '';
   private toastTimer: number | null = null;
+  private helpReturnFocus: HTMLElement | null = null;
+  private saveReturnFocus: HTMLElement | null = null;
 
   constructor(
     private readonly registry: ObjectRegistry,
@@ -241,6 +243,11 @@ export class UI {
     this.saveImport.addEventListener('change', () => {
       const file = this.saveImport.files?.[0];
       if (!file) return;
+      if (file.size > 8 * 1024 * 1024) {
+        this.toast('That file is too large. Import a Sandbox3D world under 8 MB.', 'warn');
+        this.saveImport.value = '';
+        return;
+      }
       file
         .text()
         .then((text) => this.callbacks.onImportSave(text))
@@ -444,6 +451,9 @@ export class UI {
 
   openSaves(open: boolean): void {
     if (this.savePanel.hidden === !open) return;
+    if (open && document.activeElement instanceof HTMLElement) {
+      this.saveReturnFocus = document.activeElement;
+    }
     this.savePanel.hidden = !open;
     document.body.classList.toggle('save-open', open);
     if (open) {
@@ -451,6 +461,13 @@ export class UI {
       this.searchEl.blur();
       this.callbacks.onSavesOpened();
       window.setTimeout(() => this.saveName.focus(), 60);
+    } else {
+      const target = this.saveReturnFocus;
+      this.saveReturnFocus = null;
+      if (!this.isOverlayOpen) {
+        if (target?.isConnected && target.getClientRects().length > 0) target.focus();
+        else byId<HTMLButtonElement>('btn-save').focus();
+      }
     }
   }
 
@@ -492,9 +509,22 @@ export class UI {
 
   showHelp(open: boolean): void {
     if (this.helpEl.hidden === !open) return;
+    if (open && document.activeElement instanceof HTMLElement) {
+      this.helpReturnFocus = document.activeElement;
+    }
     this.helpEl.hidden = !open;
     document.body.classList.toggle('help-open', open);
     this.callbacks.onHelpChange(open);
+    if (open) {
+      window.setTimeout(() => this.helpEl.querySelector<HTMLElement>('#help-close')?.focus(), 0);
+    } else {
+      const target = this.helpReturnFocus;
+      this.helpReturnFocus = null;
+      if (!this.isOverlayOpen) {
+        if (target?.isConnected && target.getClientRects().length > 0) target.focus();
+        else byId<HTMLButtonElement>('btn-help').focus();
+      }
+    }
   }
 
   focusSearch(): void {

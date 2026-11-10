@@ -81,6 +81,47 @@ describe('world snapshots', () => {
     expect(target.entityCount).toBe(1);
   });
 
+  it('removes a partially restored entity when applying its poses fails', async () => {
+    const source = await makeWorld();
+    source.spawn(def('block'), { position: [0, 0, 0] });
+    const snapshot = snapshotWorld(source);
+    const target = await makeWorld();
+    target.applyBodyPoses = () => {
+      throw new Error('pose failure');
+    };
+    const result = restoreWorld(target, snapshot, (id) => registry.get(id));
+    expect(result.restored).toBe(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]!.reason).toMatch(/pose failure/);
+    expect(target.entityCount).toBe(0);
+  });
+
+  it('rejects degenerate quaternions instead of loading NaN transforms', async () => {
+    const source = await makeWorld();
+    source.spawn(def('block'), { position: [0, 0, 0] });
+    const snapshot = snapshotWorld(source);
+    snapshot.entities[0]!.rotation = [0, 0, 0, 0];
+    expect(() => parseWorldSnapshot(JSON.stringify(snapshot))).toThrow(/invalid coordinates/i);
+
+    snapshot.entities[0]!.rotation = [0, 0, 0, 1];
+    snapshot.entities[0]!.poses[0]!.rotation = [0, 0, 0, 0];
+    expect(() => parseWorldSnapshot(JSON.stringify(snapshot))).toThrow(/invalid body pose/i);
+  });
+
+  it('ignores a fuse on an object that cannot explode', async () => {
+    const source = await makeWorld();
+    source.spawn(def('block'), { position: [0, 1, 0] });
+    const snapshot = snapshotWorld(source);
+    snapshot.entities[0]!.fuse = 0;
+    const target = await makeWorld();
+    const result = restoreWorld(target, snapshot, (id) => registry.get(id));
+    expect(result.restored).toBe(1);
+    const block = [...target.entities][0]!;
+    expect(block.fuse).toBeNull();
+    stepFor(target, 0.1);
+    expect(target.entityCount).toBe(1);
+  });
+
   it('rejects invalid and outdated files with readable errors', () => {
     expect(() => parseWorldSnapshot('{nope')).toThrow(/valid JSON/i);
     expect(() => parseWorldSnapshot('{"hello":"world"}')).toThrow(/not a Sandbox3D/i);

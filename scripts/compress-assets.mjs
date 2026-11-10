@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
 
@@ -15,11 +15,7 @@ function compress(file) {
 }
 
 const files = [];
-try {
-  files.push(join(dist, 'index.html'));
-} catch {
-  // index.html is optional for library-only builds.
-}
+if (existsSync(join(dist, 'index.html'))) files.push(join(dist, 'index.html'));
 for (const name of readdirSync(assets)) {
   if (['.js', '.css', '.html', '.wasm'].includes(extname(name))) files.push(join(assets, name));
 }

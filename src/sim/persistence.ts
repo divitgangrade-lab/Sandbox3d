@@ -54,7 +54,10 @@ function isVec3(value: unknown): value is Vec3 {
 }
 
 function isQuat(value: unknown): value is Quat {
-  return Array.isArray(value) && value.length === 4 && value.every(isFiniteNumber);
+  if (!Array.isArray(value) || value.length !== 4 || !value.every(isFiniteNumber)) return false;
+  // A zero or overflowing quaternion is not a rotation and produces NaN physics transforms.
+  const norm = Math.hypot(value[0], value[1], value[2], value[3]);
+  return Number.isFinite(norm) && norm > 1e-6;
 }
 
 function isPose(value: unknown): value is BodyPoseSnapshot {
@@ -134,6 +137,7 @@ export function restoreWorld(
       skipped.push({ defId: saved.defId, reason: 'World body limit reached' });
       continue;
     }
+    let spawned: SimEntity | null = null;
     try {
       const entity = world.spawn(def, {
         position: saved.position,
@@ -143,6 +147,7 @@ export function restoreWorld(
         silent: true,
         ignoreCaps: true,
       });
+      spawned = entity;
       if (entity.bodies.length !== saved.poses.length) {
         world.remove(entity);
         skipped.push({
@@ -152,7 +157,8 @@ export function restoreWorld(
         continue;
       }
       entity.hp = saved.hp;
-      entity.fuse = saved.fuse;
+      // Only real explosives may carry a fuse; a stale or edited value must not delete an object.
+      entity.fuse = def.behaviors?.explosive ? saved.fuse : null;
       entity.standing = def.kind === 'ragdoll' ? saved.standing : false;
       if (!entity.standing) entity.standPose = null;
       world.applyBodyPoses(entity, saved.poses);
@@ -162,6 +168,8 @@ export function restoreWorld(
       bodyBudget -= saved.poses.length;
       restored++;
     } catch (error) {
+      // A failure after spawning must not leave a visible half-restored entity behind.
+      if (spawned && !spawned.removed) world.remove(spawned);
       skipped.push({
         defId: saved.defId,
         reason: error instanceof Error ? error.message : 'Could not restore object',
