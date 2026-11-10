@@ -4,10 +4,13 @@ export interface GooeyNavItem {
   label: string;
   href?: string;
   icon?: ReactNode;
+  badge?: string;
+  title?: string;
 }
 
 export interface GooeyNavProps {
   items?: GooeyNavItem[];
+  ariaLabel?: string;
   initialActiveIndex?: number;
   activeIndex?: number;
   onChange?: (index: number, item: GooeyNavItem) => void;

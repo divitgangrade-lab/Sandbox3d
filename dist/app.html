@@ -13,8 +13,8 @@
       content="Sandbox3D — a free-form 3D physics playground. Spawn, grab, throw, stack and blow up hundreds of objects."
     />
     <title>Sandbox3D — Physics Playground</title>
-    <script type="module" crossorigin src="./assets/app-Cd709vYM.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/app-CjaxeFp8.css">
+    <script type="module" crossorigin src="./assets/app-BDI5aRSV.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/app-BXBkU_a2.css">
   </head>
   <body>
     <div id="app">
@@ -71,7 +71,7 @@
             <kbd>/</kbd>
           </label>
         </div>
-        <div class="categories" id="categories" role="tablist" aria-label="Categories"></div>
+        <div class="categories" id="categories" aria-label="Categories"></div>
         <div class="items" id="items" role="listbox" aria-label="Objects"></div>
         <div class="catalog-foot" id="catalog-foot">
           <div class="picked">
@@ -89,19 +89,8 @@
         </div>
       </aside>
 
-      <div class="toolbar" id="toolbar">
-        <button class="tool cursor-target" data-tool="grab" data-cursor-label="Grab tool" title="Grab &amp; throw (G)">
-          <span class="tool-icon">✋</span><span class="tool-label">Grab</span><kbd>G</kbd>
-        </button>
-        <button class="tool active cursor-target" data-tool="spawn" data-cursor-label="Spawn tool" title="Spawn selected object (S)">
-          <span class="tool-icon">✦</span><span class="tool-label">Spawn</span><kbd>S</kbd>
-        </button>
-        <button class="tool cursor-target" data-tool="blast" data-cursor-label="Blast tool" title="Create an explosion (B)">
-          <span class="tool-icon">✸</span><span class="tool-label">Blast</span><kbd>B</kbd>
-        </button>
-        <button class="tool cursor-target" data-tool="delete" data-cursor-label="Delete tool" title="Delete object (X)">
-          <span class="tool-icon">⌫</span><span class="tool-label">Delete</span><kbd>X</kbd>
-        </button>
+      <div class="toolbar" id="toolbar" role="toolbar" aria-label="Tools">
+        <div id="gooey-tools" class="gooey-tool-slot"></div>
         <div class="toolbar-sep"></div>
         <button class="ghost-btn cursor-target" id="btn-reset-view" data-cursor-label="Reset view" title="Reset camera (R)">Reset view</button>
       </div>

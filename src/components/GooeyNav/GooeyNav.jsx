@@ -203,6 +203,7 @@ const build = gl => {
 
 const GooeyNav = ({
   items = DEFAULT_ITEMS,
+  ariaLabel,
   initialActiveIndex = 0,
   activeIndex,
   onChange,
@@ -746,18 +747,22 @@ const GooeyNav = ({
         <>
           {item.icon && <span className="gooey-nav__icon">{item.icon}</span>}
           {item.label && <span className="gooey-nav__label">{item.label}</span>}
+          {item.badge && <span className="gooey-nav__badge">{item.badge}</span>}
         </>
       );
       if (!interactive) {
         return (
-          <li key={index} className="gooey-nav__item">
+          <li key={index} className="gooey-nav__item" data-gooey-index={index}>
             <span className="gooey-nav__link">{content}</span>
           </li>
         );
       }
       const shared = {
         className: 'gooey-nav__link',
-        'aria-current': index === current ? 'page' : undefined,
+        title: item.title,
+        ...(item.href
+          ? { 'aria-current': index === current ? 'page' : undefined }
+          : { 'aria-pressed': index === current }),
         onClick: event => {
           if (!item.href || item.href === '#') event.preventDefault();
           select(index);
@@ -785,6 +790,7 @@ const GooeyNav = ({
 
   return (
     <nav
+      aria-label={ariaLabel}
       className={`gooey-nav ${SIZES[size] ?? SIZES.md}${frame ? ' gooey-nav--framed' : ''} ${className}`.trim()}
       style={{ ...THEMES[palette], '--gn-pill': pillColor, '--gn-active-ink': textColor, ...style }}
     >

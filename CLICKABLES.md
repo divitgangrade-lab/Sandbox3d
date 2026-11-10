@@ -1,8 +1,11 @@
 # Clickable controls
 
 Every interactive control below is marked with `.cursor-target` and a `data-cursor-label`, so
-TargetCursor snaps its brackets around it and shows the label. Catalog cards, category tabs, and nav
-items are generated at runtime and are annotated when they are created.
+TargetCursor snaps its brackets around it and shows the label. Catalog cards and nav items are
+generated at runtime and are annotated when they are created.
+
+All navigation surfaces use the same GooeyNav component: the top sections, the catalog categories,
+and the tool modes. Their links get cursor targets from `src/ui/gooeyNavMount.tsx`.
 
 ## Top bar
 
@@ -29,10 +32,14 @@ labels and `.cursor-target` class present across React re-renders.
 | Any object card | `Select <object name>` |
 | Size slider row | `Object size` |
 
-The category tabs and 196 object cards are created by `src/ui/ui.ts`; labels are derived from the
-category and object definitions.
+The category tabs are mounted as a GooeyNav by `src/ui/ui.ts`, with their counts shown as badges.
+The 196 object cards are still plain buttons; their labels are derived from the object definitions.
 
 ## Toolbar
+
+The four tool modes are a GooeyNav mounted by `src/ui/ui.ts`; their shortcut keys appear as badges
+on wide screens and are hidden on compact screens. **Reset view** remains a separate one-shot button
+because it is an action, not a toggleable mode.
 
 | Control | Cursor label |
 | --- | --- |

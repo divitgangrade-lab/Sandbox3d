@@ -117,6 +117,26 @@
   flex: none;
 }
 
+.gooey-nav__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  padding: 1px 4px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  color: currentColor;
+  font-size: 0.68em;
+  font-weight: 650;
+  line-height: 1.3;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.gooey-nav__list--active .gooey-nav__badge {
+  background: rgba(0, 0, 0, 0.12);
+}
+
 .gooey-nav__icon svg {
   width: 1.15em;
   height: 1.15em;

@@ -14,7 +14,7 @@ import { GhostPreview, HoverHighlight } from '../render/ghost';
 import { OrbitCamera } from './OrbitCamera';
 import { Input } from './input';
 import { UI, type Tool } from '../ui/ui';
-import { mountGooeyNav, type GooeyNavController } from '../ui/gooeyNavMount';
+import { mountTopNav, type GooeyNavController } from '../ui/gooeyNavMount';
 import { mountLiquidChrome, type LiquidChromeController } from '../ui/liquidChromeMount';
 import { mountParticleText, type ParticleTextController } from '../ui/particleTextMount';
 import { mountTargetCursor, type TargetCursorController } from '../ui/targetCursorMount';
@@ -130,7 +130,7 @@ export class SandboxGame {
     if (!(navContainer instanceof HTMLElement)) {
       throw new Error('Navigation container #gooey-nav was not found');
     }
-    this.nav = mountGooeyNav(navContainer, (index) => this.handleNav(index));
+    this.nav = mountTopNav(navContainer, (index) => this.handleNav(index));
 
     const cursorContainer = document.getElementById('target-cursor-root');
     if (!(cursorContainer instanceof HTMLElement)) {
@@ -180,6 +180,7 @@ export class SandboxGame {
     this.helpParticle?.dispose();
     this.helpParticle = null;
     this.targetCursor.dispose();
+    this.ui.dispose();
     this.nav.dispose();
     window.removeEventListener('resize', this.handleResize);
     document.removeEventListener('visibilitychange', this.handleVisibility);

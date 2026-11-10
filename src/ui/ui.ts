@@ -1,9 +1,19 @@
-/** Catalog, toolbars, help, stats and toast UI. All markup lives in index.html. */
+/** Catalog, toolbars, help, stats and toast UI. Markup lives in app.html. */
 
 import type { Category, ObjectDef } from '../catalog/types';
 import { CATEGORY_META, CATEGORY_ORDER, type ObjectRegistry } from '../catalog/registry';
+import { mountGooeyNav, type GooeyNavController } from './gooeyNavMount';
 
 export type Tool = 'grab' | 'spawn' | 'blast' | 'delete';
+
+const TOOL_ITEMS: { id: Tool; label: string; icon: string; badge: string; title: string }[] = [
+  { id: 'grab', label: 'Grab', icon: '✋', badge: 'G', title: 'Grab & throw (G)' },
+  { id: 'spawn', label: 'Spawn', icon: '✦', badge: 'S', title: 'Spawn selected object (S)' },
+  { id: 'blast', label: 'Blast', icon: '✸', badge: 'B', title: 'Create an explosion (B)' },
+  { id: 'delete', label: 'Delete', icon: '⌫', badge: 'X', title: 'Delete object (X)' }
+];
+
+const TOOLS = ['#b8ff5a', '#ffb347', '#ff8a5c', '#ff6b6b'];
 
 export interface UiCallbacks {
   onSelect: (defId: string) => void;
@@ -24,6 +34,7 @@ function byId<T extends HTMLElement>(id: string): T {
 
 export class UI {
   private readonly categoriesEl = byId<HTMLDivElement>('categories');
+  private readonly toolsEl = byId<HTMLDivElement>('gooey-tools');
   private readonly itemsEl = byId<HTMLDivElement>('items');
   private readonly searchEl = byId<HTMLInputElement>('search');
   private readonly countEl = byId<HTMLElement>('catalog-count');
@@ -42,7 +53,8 @@ export class UI {
   private readonly dragTipEl = byId<HTMLDivElement>('drag-tip');
   private readonly pauseBtn = byId<HTMLButtonElement>('btn-pause');
   private readonly slowBtn = byId<HTMLButtonElement>('btn-slow');
-  private readonly categoryButtons = new Map<string, HTMLButtonElement>();
+  private categoryNav: GooeyNavController | null = null;
+  private toolNav: GooeyNavController | null = null;
   private activeCategory: Category | 'all' = 'all';
   private selectedId = '';
   private toastTimer: number | null = null;
@@ -52,6 +64,7 @@ export class UI {
     private readonly callbacks: UiCallbacks,
   ) {
     this.buildCategories();
+    this.buildTools();
     this.bind();
     this.renderItems();
   }
@@ -68,27 +81,54 @@ export class UI {
         count: counts[id] ?? 0,
       })),
     ];
-    const fragment = document.createDocumentFragment();
-    for (const entry of entries) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = `cat cursor-target${entry.id === 'all' ? ' active' : ''}`;
-      button.dataset.category = entry.id;
-      button.dataset.cursorLabel = entry.id === 'all' ? 'Show all objects' : `Show ${entry.label}`;
-      button.title = entry.id === 'all' ? 'Every object' : CATEGORY_META[entry.id].hint;
-      button.innerHTML = `<span class="cat-icon"></span><span class="cat-label"></span><span class="cat-count"></span>`;
-      button.querySelector('.cat-icon')!.textContent = entry.icon;
-      button.querySelector('.cat-label')!.textContent = entry.label;
-      button.querySelector('.cat-count')!.textContent = String(entry.count);
-      button.addEventListener('click', () => {
+    this.categoryNav = mountGooeyNav(this.categoriesEl, {
+      ariaLabel: 'Object categories',
+      items: entries.map((entry) => ({
+        label: entry.label,
+        icon: entry.icon,
+        badge: String(entry.count),
+        title: entry.id === 'all' ? 'Every object' : CATEGORY_META[entry.id].hint
+      })),
+      initialActiveIndex: 0,
+      className: 'gooey-nav--catalog',
+      colors: ['#b8ff5a', '#8bf0c0', '#d9ff9a'],
+      particleCount: 8,
+      spread: 28,
+      animationTime: 420,
+      timeVariance: 180,
+      gooeyness: 0.48,
+      wobble: 0.35,
+      cursorLabel: (_item, index) =>
+        entries[index]?.id === 'all' ? 'Show all objects' : `Show ${entries[index]?.label}`,
+      onSelect: (index) => {
+        const entry = entries[index];
+        if (!entry) return;
         this.activeCategory = entry.id;
-        for (const [id, btn] of this.categoryButtons) btn.classList.toggle('active', id === entry.id);
         this.renderItems();
-      });
-      this.categoryButtons.set(entry.id, button);
-      fragment.append(button);
-    }
-    this.categoriesEl.replaceChildren(fragment);
+      }
+    });
+  }
+
+  private buildTools(): void {
+    const activeTool = TOOL_ITEMS.findIndex((tool) => tool.id === 'spawn');
+    this.toolNav = mountGooeyNav(this.toolsEl, {
+      ariaLabel: 'Tools',
+      items: TOOL_ITEMS.map(({ label, icon, badge, title }) => ({ label, icon, badge, title })),
+      initialActiveIndex: activeTool,
+      className: 'gooey-nav--tools',
+      colors: TOOLS,
+      particleCount: 10,
+      spread: 34,
+      animationTime: 440,
+      timeVariance: 180,
+      gooeyness: 0.52,
+      wobble: 0.4,
+      cursorLabel: (item) => `${item.label} tool`,
+      onSelect: (index) => {
+        const tool = TOOL_ITEMS[index];
+        if (tool) this.callbacks.onTool(tool.id);
+      }
+    });
   }
 
   private bind(): void {
@@ -98,12 +138,6 @@ export class UI {
       this.scaleValue.value = `${scale.toFixed(1)}×`;
       this.callbacks.onScale(scale);
     });
-    for (const button of document.querySelectorAll<HTMLButtonElement>('[data-tool]')) {
-      button.addEventListener('click', () => {
-        const tool = button.dataset.tool as Tool;
-        if (tool) this.callbacks.onTool(tool);
-      });
-    }
     byId('btn-pause').addEventListener('click', () => this.callbacks.onTogglePause());
     byId('btn-slow').addEventListener('click', () => this.callbacks.onToggleSlow());
     byId('btn-clear').addEventListener('click', () => this.callbacks.onClear());
@@ -176,15 +210,14 @@ export class UI {
     if (!this.itemsEl.querySelector(`[data-id="${CSS.escape(def.id)}"]`)) {
       this.activeCategory = 'all';
       this.searchEl.value = '';
-      for (const [id, btn] of this.categoryButtons) btn.classList.toggle('active', id === 'all');
+      this.categoryNav?.setActive(0);
       this.renderItems();
     }
   }
 
   setTool(tool: Tool): void {
-    for (const button of document.querySelectorAll<HTMLButtonElement>('[data-tool]')) {
-      button.classList.toggle('active', button.dataset.tool === tool);
-    }
+    const index = TOOL_ITEMS.findIndex((item) => item.id === tool);
+    if (index >= 0) this.toolNav?.setActive(index);
   }
 
   setPaused(paused: boolean): void {
@@ -252,5 +285,12 @@ export class UI {
   setScale(scale: number): void {
     this.scaleEl.value = String(scale);
     this.scaleValue.value = `${scale.toFixed(1)}×`;
+  }
+
+  dispose(): void {
+    this.categoryNav?.dispose();
+    this.categoryNav = null;
+    this.toolNav?.dispose();
+    this.toolNav = null;
   }
 }
