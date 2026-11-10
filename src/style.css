@@ -434,6 +434,7 @@ button {
   align-items: center;
   gap: 8px;
   height: 38px;
+  margin-top: 36px;
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 11px;

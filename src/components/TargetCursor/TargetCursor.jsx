@@ -214,6 +214,7 @@ const TargetCursor = ({
       const degrees = (turn.x * 180) / Math.PI;
       let left = Infinity;
       let top = Infinity;
+      let bottom = -Infinity;
       cornerRefs.current.forEach((corner, i) => {
         if (!corner) return;
         const [lx, ly] = local[i];
@@ -221,6 +222,7 @@ const TargetCursor = ({
         const y = centerY.x + lx * sin + ly * cos;
         left = Math.min(left, x);
         top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
         corner.style.transform = `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) rotate(${(CORNER_ANGLES[i] + degrees).toFixed(2)}deg)`;
         corner.style.width = `${s.cornerSize}px`;
         corner.style.height = `${s.cornerSize}px`;
@@ -242,7 +244,11 @@ const TargetCursor = ({
         if (text && text !== lastLabel) label.textContent = text;
         if (text) lastLabel = text;
         const shown = text ? Math.max(0, Math.min(1, lock.x)) : 0;
-        label.style.transform = `translate3d(${left.toFixed(2)}px, ${(top - 8).toFixed(2)}px, 0) translateY(-100%) translateY(${((1 - shown) * 4).toFixed(2)}px)`;
+        // Keep labels visible when a target sits against the top edge (top bar/nav).
+        const below = top < 20;
+        const labelY = below ? bottom + 8 : top - 8;
+        const lift = below ? '' : ' translateY(-100%)';
+        label.style.transform = `translate3d(${left.toFixed(2)}px, ${labelY.toFixed(2)}px, 0)${lift} translateY(${((1 - shown) * 4).toFixed(2)}px)`;
         label.style.opacity = shown.toFixed(3);
       }
 
