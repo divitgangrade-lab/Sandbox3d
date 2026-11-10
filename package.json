@@ -1,0 +1,28 @@
+{
+  "name": "sandbox3d",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A free-form 3D physics playground: spawn, move, combine and destroy a huge catalog of objects.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "tsc --noEmit && vite build",
+    "postbuild": "node scripts/compress-assets.mjs && node scripts/size-report.mjs",
+    "compress": "node scripts/compress-assets.mjs",
+    "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "size": "node scripts/size-report.mjs"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.187.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.7",
+    "vitest": "^5.1.0"
+  }
+}

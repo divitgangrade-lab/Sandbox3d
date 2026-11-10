@@ -426,3 +426,11 @@ FodyWeavers.xsd
 
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
+
+# Sandbox3D
+node_modules/
+dist/
+.vite/
+coverage/
+*.local
+.DS_Store

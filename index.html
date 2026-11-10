@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#0b1020" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23b8ff5a'/%3E%3Crect x='20' y='20' width='24' height='24' rx='7' fill='%230d1520' transform='rotate(10 32 32)'/%3E%3C/svg%3E"
+    />
+    <meta
+      name="description"
+      content="Sandbox3D — a free-form 3D physics playground. Spawn, grab, throw, stack and blow up hundreds of objects."
+    />
+    <title>Sandbox3D — Physics Playground</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene" aria-label="3D physics playground"></canvas>
+
+      <div id="boot" class="boot">
+        <div class="boot-card">
+          <div class="boot-logo"><span></span></div>
+          <h1>Sandbox<span>3D</span></h1>
+          <p id="boot-status">Waking up the physics engine…</p>
+          <div class="boot-bar"><i id="boot-bar"></i></div>
+        </div>
+      </div>
+
+      <div id="fatal" class="fatal" hidden>
+        <div class="fatal-card">
+          <h2>Could not start Sandbox3D</h2>
+          <p id="fatal-message"></p>
+          <p class="fatal-hint">
+            Try a recent Chrome, Edge, Firefox or Safari with WebGL 2 and WASM enabled.
+          </p>
+        </div>
+      </div>
+
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark"></span>
+          <span class="brand-name">Sandbox<b>3D</b></span>
+        </div>
+        <div class="stats" id="stats">
+          <div class="stat"><b id="stat-fps">–</b><span>fps</span></div>
+          <div class="stat"><b id="stat-entities">0</b><span>objects</span></div>
+          <div class="stat"><b id="stat-bodies">0</b><span>bodies</span></div>
+          <div class="stat"><b id="stat-calls">0</b><span>draws</span></div>
+        </div>
+        <div class="top-actions">
+          <button class="icon-btn" id="btn-pause" title="Pause physics (Space)" aria-label="Pause">❚❚</button>
+          <button class="icon-btn" id="btn-slow" title="Slow motion (T)" aria-label="Slow motion">◷</button>
+          <button class="icon-btn" id="btn-clear" title="Clear the world (C)" aria-label="Clear world">⌫</button>
+          <button class="icon-btn" id="btn-help" title="Controls (H)" aria-label="Help">?</button>
+        </div>
+      </header>
+
+      <aside class="catalog" id="catalog">
+        <div class="catalog-head">
+          <div class="catalog-title">
+            <h2>Object catalog</h2>
+            <span id="catalog-count" class="count">0</span>
+          </div>
+          <label class="search">
+            <span aria-hidden="true">⌕</span>
+            <input id="search" type="search" placeholder="Search objects or tags…" autocomplete="off" />
+            <kbd>/</kbd>
+          </label>
+        </div>
+        <div class="categories" id="categories" role="tablist" aria-label="Categories"></div>
+        <div class="items" id="items" role="listbox" aria-label="Objects"></div>
+        <div class="catalog-foot" id="catalog-foot">
+          <div class="picked">
+            <div class="picked-icon" id="picked-icon">▣</div>
+            <div class="picked-text">
+              <b id="picked-name">Pick an object</b>
+              <span id="picked-desc">Then click the world to spawn it</span>
+            </div>
+          </div>
+          <label class="scale-row">
+            <span>Size</span>
+            <input id="spawn-scale" type="range" min="0.5" max="2" step="0.05" value="1" />
+            <output id="spawn-scale-value">1.0×</output>
+          </label>
+        </div>
+      </aside>
+
+      <div class="toolbar" id="toolbar">
+        <button class="tool" data-tool="grab" title="Grab &amp; throw (G)">
+          <span class="tool-icon">✋</span><span class="tool-label">Grab</span><kbd>G</kbd>
+        </button>
+        <button class="tool active" data-tool="spawn" title="Spawn selected object (S)">
+          <span class="tool-icon">✦</span><span class="tool-label">Spawn</span><kbd>S</kbd>
+        </button>
+        <button class="tool" data-tool="blast" title="Create an explosion (B)">
+          <span class="tool-icon">✸</span><span class="tool-label">Blast</span><kbd>B</kbd>
+        </button>
+        <button class="tool" data-tool="delete" title="Delete object (X)">
+          <span class="tool-icon">⌫</span><span class="tool-label">Delete</span><kbd>X</kbd>
+        </button>
+        <div class="toolbar-sep"></div>
+        <button class="ghost-btn" id="btn-reset-view" title="Reset camera (R)">Reset view</button>
+      </div>
+
+      <div class="hint" id="hint"></div>
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+      <div class="help" id="help" hidden>
+        <div class="help-card">
+          <button class="help-close" id="help-close" aria-label="Close help">✕</button>
+          <h2>Welcome to the playground</h2>
+          <p class="help-lead">
+            Spawn anything, grab it, hurl it. Stack, smash, detonate. There is no goal — just physics.
+          </p>
+          <div class="help-grid">
+            <div><kbd>Left click</kbd><span>Use current tool</span></div>
+            <div><kbd>Right drag</kbd><span>Orbit camera</span></div>
+            <div><kbd>Middle drag</kbd><span>Pan camera</span></div>
+            <div><kbd>Wheel</kbd><span>Zoom</span></div>
+            <div><kbd>G</kbd><span>Grab / throw tool</span></div>
+            <div><kbd>S</kbd><span>Spawn tool</span></div>
+            <div><kbd>B</kbd><span>Blast tool</span></div>
+            <div><kbd>X</kbd><span>Delete tool</span></div>
+            <div><kbd>F</kbd><span>Fire / start vehicle</span></div>
+            <div><kbd>Space</kbd><span>Pause physics</span></div>
+            <div><kbd>T</kbd><span>Slow motion</span></div>
+            <div><kbd>C</kbd><span>Clear world</span></div>
+            <div><kbd>R</kbd><span>Reset camera</span></div>
+            <div><kbd>H</kbd><span>Toggle this help</span></div>
+            <div><kbd>/</kbd><span>Search catalog</span></div>
+            <div><kbd>WASD</kbd><span>Pan camera</span></div>
+          </div>
+          <button class="primary" id="help-start">Start playing</button>
+        </div>
+      </div>
+
+      <div class="drag-tip" id="drag-tip" hidden>Throw!</div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
