@@ -429,7 +429,8 @@ FodyWeavers.xsd
 
 # Sandbox3D
 node_modules/
-dist/
+dist/**/*.gz
+dist/**/*.br
 .vite/
 coverage/
 *.local

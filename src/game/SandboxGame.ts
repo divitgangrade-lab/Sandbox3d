@@ -14,6 +14,10 @@ import { GhostPreview, HoverHighlight } from '../render/ghost';
 import { OrbitCamera } from './OrbitCamera';
 import { Input } from './input';
 import { UI, type Tool } from '../ui/ui';
+import { mountGooeyNav, type GooeyNavController } from '../ui/gooeyNavMount';
+import { mountLiquidChrome, type LiquidChromeController } from '../ui/liquidChromeMount';
+import { mountParticleText, type ParticleTextController } from '../ui/particleTextMount';
+import { mountTargetCursor, type TargetCursorController } from '../ui/targetCursorMount';
 
 interface GrabSample {
   point: THREE.Vector3;
@@ -33,6 +37,10 @@ export class SandboxGame {
   private camera!: OrbitCamera;
   private input!: Input;
   private ui!: UI;
+  private nav!: GooeyNavController;
+  private liquidChrome: LiquidChromeController | null = null;
+  private helpParticle: ParticleTextController | null = null;
+  private targetCursor!: TargetCursorController;
   private grabber!: SimGrabber;
   private ghost!: GhostPreview;
   private hover!: HoverHighlight;
@@ -84,6 +92,30 @@ export class SandboxGame {
         this.scale = scale;
       },
       onHelpChange: (open) => {
+        this.nav?.setActive(open ? 2 : 0);
+        if (open) {
+          const chromeHost = document.getElementById('help-chrome');
+          if (chromeHost && !this.liquidChrome) {
+            try {
+              this.liquidChrome = mountLiquidChrome(chromeHost);
+            } catch (error) {
+              console.error('[Sandbox3D] LiquidChrome backdrop failed to mount', error);
+            }
+          }
+          const particleHost = document.getElementById('help-particle');
+          if (particleHost && !this.helpParticle) {
+            try {
+              this.helpParticle = mountParticleText(particleHost);
+            } catch (error) {
+              console.error('[Sandbox3D] ParticleText headline failed to mount', error);
+            }
+          }
+        } else {
+          this.liquidChrome?.dispose();
+          this.liquidChrome = null;
+          this.helpParticle?.dispose();
+          this.helpParticle = null;
+        }
         if (!open) {
           try {
             localStorage.setItem('sandbox3d.helpSeen', '1');
@@ -93,6 +125,18 @@ export class SandboxGame {
         }
       },
     });
+
+    const navContainer = document.getElementById('gooey-nav');
+    if (!(navContainer instanceof HTMLElement)) {
+      throw new Error('Navigation container #gooey-nav was not found');
+    }
+    this.nav = mountGooeyNav(navContainer, (index) => this.handleNav(index));
+
+    const cursorContainer = document.getElementById('target-cursor-root');
+    if (!(cursorContainer instanceof HTMLElement)) {
+      throw new Error('Target cursor container #target-cursor-root was not found');
+    }
+    this.targetCursor = mountTargetCursor(cursorContainer);
 
     this.ghost.setDef(this.selectedDef);
     this.ui.setSelected(this.selectedDef);
@@ -131,6 +175,12 @@ export class SandboxGame {
 
   dispose(): void {
     this.stop();
+    this.liquidChrome?.dispose();
+    this.liquidChrome = null;
+    this.helpParticle?.dispose();
+    this.helpParticle = null;
+    this.targetCursor.dispose();
+    this.nav.dispose();
     window.removeEventListener('resize', this.handleResize);
     document.removeEventListener('visibilitychange', this.handleVisibility);
     this.input.dispose();
@@ -190,6 +240,7 @@ export class SandboxGame {
 
   private readonly handlePointerDown = (): void => {
     if (this.ui.isHelpOpen) return;
+    this.nav?.setActive(0);
     const hit = this.pick();
 
     switch (this.tool) {
@@ -564,6 +615,25 @@ export class SandboxGame {
   private readonly handleResize = (): void => {
     this.scene.resize(window.innerWidth, window.innerHeight, this.camera.camera);
   };
+
+  private handleNav(index: number): void {
+    switch (index) {
+      case 0:
+        this.ui.showHelp(false);
+        this.ui.blurSearch();
+        break;
+      case 1:
+        this.ui.showHelp(false);
+        this.ui.focusSearch();
+        break;
+      case 2:
+        this.ui.showHelp(true);
+        break;
+      default:
+        return;
+    }
+    this.nav.setActive(index);
+  }
 
   private readonly handleVisibility = (): void => {
     this.lastFrame = 0;

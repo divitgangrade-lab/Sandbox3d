@@ -72,8 +72,9 @@ export class UI {
     for (const entry of entries) {
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = `cat${entry.id === 'all' ? ' active' : ''}`;
+      button.className = `cat cursor-target${entry.id === 'all' ? ' active' : ''}`;
       button.dataset.category = entry.id;
+      button.dataset.cursorLabel = entry.id === 'all' ? 'Show all objects' : `Show ${entry.label}`;
       button.title = entry.id === 'all' ? 'Every object' : CATEGORY_META[entry.id].hint;
       button.innerHTML = `<span class="cat-icon"></span><span class="cat-label"></span><span class="cat-count"></span>`;
       button.querySelector('.cat-icon')!.textContent = entry.icon;
@@ -135,8 +136,9 @@ export class UI {
   private itemCard(def: ObjectDef): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `item${def.id === this.selectedId ? ' active' : ''}`;
+    button.className = `item cursor-target${def.id === this.selectedId ? ' active' : ''}`;
     button.dataset.id = def.id;
+    button.dataset.cursorLabel = `Select ${def.name}`;
     button.setAttribute('role', 'option');
     button.setAttribute('aria-selected', String(def.id === this.selectedId));
     button.title = def.description ?? def.name;
@@ -237,6 +239,10 @@ export class UI {
   focusSearch(): void {
     this.searchEl.focus();
     this.searchEl.select();
+  }
+
+  blurSearch(): void {
+    this.searchEl.blur();
   }
 
   get scale(): number {

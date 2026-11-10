@@ -18,11 +18,21 @@ Other useful commands:
 ```bash
 npm test           # headless Vitest suite (registry, physics, spawning, interactions)
 npm run typecheck  # strict TypeScript
-npm run build      # typecheck + minified production build + gzip/brotli copies + size report
+npm run build      # typecheck + minified production build into dist/ + gzip/brotli copies + size report
 npm run size       # raw / gzip / brotli sizes of dist/assets
 ```
 
 Node 20+ is recommended. Rapier ships as WASM and is initialized before the first world is built.
+
+## GitHub Pages
+
+The published site is served from the main branch root. `index.html` is a small launcher: on GitHub
+Pages it redirects to the production build in `dist/`, while local development goes to the Vite
+source entry `app.html`. This keeps the existing Pages branch source working without a Pages
+settings change.
+
+After changing source, run `npm run build` and commit the updated `dist/` output. `npm run dev`
+still serves the TypeScript source at `http://localhost:3000` through the launcher.
 
 ## Controls
 

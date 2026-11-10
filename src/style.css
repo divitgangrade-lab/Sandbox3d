@@ -56,6 +56,18 @@ button {
   display: none !important;
 }
 
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
 #app {
   position: fixed;
   inset: 0;
@@ -272,6 +284,23 @@ button {
 .brand-name b {
   color: var(--accent);
   font-weight: 800;
+}
+
+.gooey-nav-slot {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.topbar .gooey-nav--topbar {
+  --gn-font: 12px;
+  --gn-x: 11px;
+  --gn-y: 6px;
+}
+
+.topbar .gooey-nav--topbar .gooey-nav__link {
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .stats {
@@ -862,8 +891,29 @@ button {
   to { opacity: 1; }
 }
 
+.help-particle {
+  width: 100%;
+  height: 76px;
+  margin: 0 0 6px;
+  color: var(--text);
+}
+
+.help-particle .particle-text {
+  min-height: 0;
+}
+
+.help-chrome {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.72;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
 .help-card {
   position: relative;
+  z-index: 1;
   width: min(600px, 100%);
   max-height: calc(100vh - 44px);
   overflow-y: auto;
@@ -926,6 +976,7 @@ button {
   position: absolute;
   top: 15px;
   right: 15px;
+  z-index: 3;
   width: 30px;
   height: 30px;
   display: grid;
@@ -1051,6 +1102,32 @@ button {
   .toast {
     top: auto;
     bottom: 82px;
+  }
+}
+
+@media (max-width: 560px) {
+  .brand-name {
+    display: none;
+  }
+  .topbar .gooey-nav--topbar {
+    --gn-font: 11px;
+    --gn-x: 8px;
+    --gn-y: 6px;
+    --gn-gap: 0px;
+    --gn-pad: 3px;
+  }
+  .top-actions {
+    gap: 4px;
+  }
+  .topbar .icon-btn {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+@media (max-width: 380px) {
+  .brand {
+    display: none;
   }
 }
 
