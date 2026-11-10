@@ -22,7 +22,7 @@ const def = (
   colors: [...colors],
   parts,
   tags: ['block', ...tags],
-  description: `${name} — ${material} block`,
+  description: `${name}. A ${material} block.`,
   ...extra,
 });
 

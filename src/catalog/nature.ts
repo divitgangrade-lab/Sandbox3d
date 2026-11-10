@@ -21,7 +21,7 @@ function natural(
     colors: [...PALETTES.wood],
     parts,
     tags: ['nature'],
-    description: `${name} — part of the scenery`,
+    description: `${name}. Part of the scenery.`,
     ...extra,
   };
 }

@@ -15,7 +15,7 @@ const TOP_LABELS: Record<string, string> = {
   Guide: 'Open guide'
 };
 
-const COLORS = ['#b8ff5a', '#8bf0c0', '#d9ff9a'];
+const COLORS = ['#b8ff5a', '#a9c98a', '#d3c98f'];
 
 const TOP_STYLE = {
   '--gn-frame': 'rgba(12, 18, 28, 0.82)',
@@ -23,7 +23,7 @@ const TOP_STYLE = {
   '--gn-frame-highlight': 'rgba(255, 255, 255, 0.06)',
   '--gn-frame-shadow': '0 12px 30px -18px rgba(0, 0, 0, 0.9)',
   '--gn-ink': '#eef4fb',
-  '--gn-muted': 'rgba(226, 235, 245, 0.58)'
+  '--gn-muted': 'rgba(226, 235, 245, 0.74)'
 } as CSSProperties;
 
 export interface GooeyNavOptions {

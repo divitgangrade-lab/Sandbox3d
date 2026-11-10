@@ -267,7 +267,14 @@ const GooeyNav = ({
     if (!stage || !canvas || !list || !overlay || !fallback) return;
 
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false });
+    const gl = canvas.getContext('webgl2', {
+      alpha: true,
+      premultipliedAlpha: true,
+      antialias: false,
+      // Keep the last frame readable by the compositor; without it some browsers show an empty
+      // white canvas between animation frames, blanking the nav and the panels behind it.
+      preserveDrawingBuffer: true
+    });
     const pipeline = gl ? build(gl) : null;
     fallback.style.display = pipeline ? 'none' : 'block';
     canvas.style.display = pipeline ? 'block' : 'none';

@@ -15,6 +15,9 @@ export class Input {
   clientX = 0;
   clientY = 0;
   primaryDown = false;
+  ctrlKey = false;
+  metaKey = false;
+  shiftKey = false;
 
   private readonly downButtons = new Set<number>();
   private lastX = 0;
@@ -38,17 +41,28 @@ export class Input {
     on(canvas, 'pointerdown', (event) => this.pointerDown(event));
     on(canvas, 'pointermove', (event) => this.pointerMove(event));
     on(canvas, 'pointerup', (event) => this.pointerUp(event));
-    on(canvas, 'pointercancel', (event) => this.pointerUp(event));
+    on(canvas, 'pointercancel', (event) => this.pointerCancel(event));
     on(canvas, 'wheel', (event) => this.onWheel(event), { passive: false });
     on(canvas, 'contextmenu', (event) => event.preventDefault());
 
     on(window, 'keydown', (event) => this.keyDown(event));
-    on(window, 'keyup', (event) => this.keys.delete(event.code));
+    on(window, 'keyup', (event) => {
+      this.keys.delete(event.code);
+      this.ctrlKey = event.ctrlKey;
+      this.metaKey = event.metaKey;
+      this.shiftKey = event.shiftKey;
+    });
     on(window, 'blur', () => {
       this.keys.clear();
       this.justPressed.clear();
       this.primaryDown = false;
       this.downButtons.clear();
+      this.ctrlKey = false;
+      this.metaKey = false;
+      this.shiftKey = false;
+      // A pointerup will never arrive after focus is lost, so release any active grab here.
+      const cancel = new Event('pointercancel') as PointerEvent;
+      for (const handler of this.upHandlers) handler(cancel);
     });
   }
 
@@ -98,12 +112,28 @@ export class Input {
     for (const handler of this.upHandlers) handler(event);
   }
 
+  /**
+   * Browsers omit the button on a canceled pointer. Treat it as an unconditional release so a
+   * grabbed body can never be stranded when touch input, a context menu or the OS steals it.
+   */
+  private pointerCancel(event: PointerEvent): void {
+    this.downButtons.clear();
+    this.primaryDown = false;
+    for (const handler of this.upHandlers) handler(event);
+  }
+
+  /** Pan keys belong to the camera unless a vehicle is being driven. */
+  cameraPanEnabled = true;
+
   private onWheel(event: WheelEvent): void {
     event.preventDefault();
     this.wheel += event.deltaY;
   }
 
   private keyDown(event: KeyboardEvent): void {
+    this.ctrlKey = event.ctrlKey;
+    this.metaKey = event.metaKey;
+    this.shiftKey = event.shiftKey;
     const target = event.target as HTMLElement | null;
     const typing =
       target instanceof HTMLInputElement ||
@@ -116,6 +146,9 @@ export class Input {
     }
     if (!event.repeat) this.justPressed.add(event.code);
     this.keys.add(event.code);
+    if ((event.ctrlKey || event.metaKey) && (event.code === 'KeyS' || event.code === 'KeyZ' || event.code === 'KeyY')) {
+      event.preventDefault();
+    }
     if (
       event.code === 'Space' ||
       event.code === 'ArrowUp' ||

@@ -34,7 +34,7 @@ function boom(
     colors: [...(o.colors ?? PALETTES.explosive)],
     parts,
     tags: ['explosive', 'boom', ...(o.tags ?? [])],
-    description: `${name} — blast radius ${o.radius.toFixed(0)} m`,
+    description: `${name}. Blast radius ${o.radius.toFixed(0)} m.`,
     behaviors: {
       explosive: {
         radius: o.radius,

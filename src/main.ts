@@ -19,13 +19,13 @@ function showFatal(error: unknown): void {
 
 async function start(): Promise<void> {
   try {
-    if (bootStatus) bootStatus.textContent = 'Loading the physics engine…';
+    if (bootStatus) bootStatus.textContent = 'Loading Rapier…';
     if (bootBar) bootBar.style.width = '16%';
 
     const game = new SandboxGame();
     await game.init();
 
-    if (bootStatus) bootStatus.textContent = 'Warming up the playground…';
+    if (bootStatus) bootStatus.textContent = 'Building the first scene…';
     if (bootBar) bootBar.style.width = '84%';
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
@@ -37,7 +37,7 @@ async function start(): Promise<void> {
     }
     if (bootBar) bootBar.style.width = '100%';
     if (bootStatus) bootStatus.textContent = 'Ready';
-    console.info(`Sandbox3D ready · ${VISIBLE_OBJECT_COUNT} objects · Rapier + Three.js`);
+    console.info(`Sandbox3D ready: ${VISIBLE_OBJECT_COUNT} objects on Rapier + Three.js`);
 
     window.setTimeout(() => {
       boot?.classList.add('is-hidden');

@@ -29,7 +29,7 @@ function prop(
     colors: [...(options.colors ?? PALETTES.wood)],
     parts,
     tags: ['prop', ...(options.tags ?? [])],
-    description: options.description ?? `${name} — spawn it, stack it, throw it`,
+    description: options.description ?? `${name}. A solid prop for stacking and throwing.`,
   };
 }
 

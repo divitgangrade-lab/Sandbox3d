@@ -30,7 +30,7 @@ function fragile(
     colors,
     parts,
     tags: ['fragile', 'breakable', ...(extra.tags ?? [])],
-    description: `${name} — shatters on hard impacts`,
+    description: `${name}. Shatters on hard impacts.`,
     behaviors: {
       destructible: {
         hp: extra.hp ?? 70,

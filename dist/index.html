@@ -10,11 +10,11 @@
     />
     <meta
       name="description"
-      content="Sandbox3D — a free-form 3D physics playground. Spawn, grab, throw, stack and blow up hundreds of objects."
+      content="Sandbox3D: a browser physics sandbox. Spawn, grab and throw 196 objects, then blow them up."
     />
-    <title>Sandbox3D — Physics Playground</title>
-    <script type="module" crossorigin src="./assets/app-BDI5aRSV.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/app-BXBkU_a2.css">
+    <title>Sandbox3D: Physics Sandbox</title>
+    <script type="module" crossorigin src="./assets/app-zD1Mx5s6.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/app-DJzH34SC.css">
   </head>
   <body>
     <div id="app">
@@ -24,7 +24,7 @@
         <div class="boot-card">
           <div class="boot-logo"><span></span></div>
           <h1>Sandbox<span>3D</span></h1>
-          <p id="boot-status">Waking up the physics engine…</p>
+          <p id="boot-status">Loading Rapier and the catalog…</p>
           <div class="boot-bar"><i id="boot-bar"></i></div>
         </div>
       </div>
@@ -52,6 +52,9 @@
           <div class="stat"><b id="stat-calls">0</b><span>draws</span></div>
         </div>
         <div class="top-actions">
+          <button class="icon-btn cursor-target" id="btn-undo" data-cursor-label="Undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↶</button>
+          <button class="icon-btn cursor-target" id="btn-redo" data-cursor-label="Redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>↷</button>
+          <button class="icon-btn cursor-target" id="btn-save" data-cursor-label="Saves and export" title="Saves &amp; export (Ctrl+S)" aria-label="Saves">▤</button>
           <button class="icon-btn cursor-target" id="btn-pause" data-cursor-label="Pause / resume" title="Pause physics (Space)" aria-label="Pause">❚❚</button>
           <button class="icon-btn cursor-target" id="btn-slow" data-cursor-label="Slow motion" title="Slow motion (T)" aria-label="Slow motion">◷</button>
           <button class="icon-btn cursor-target" id="btn-clear" data-cursor-label="Clear world" title="Clear the world (C)" aria-label="Clear world">⌫</button>
@@ -89,6 +92,72 @@
         </div>
       </aside>
 
+      <section class="world-panel" id="world-panel" aria-label="World settings">
+        <span class="world-panel-label">Gravity</span>
+        <input id="gravity-slider" type="range" min="-24" max="4" step="0.1" value="-9.8" aria-label="World gravity" />
+        <output id="gravity-value">-9.8</output>
+        <span class="world-panel-hint">m/s²</span>
+      </section>
+
+      <aside class="inspector" id="inspector" hidden aria-live="polite">
+        <div class="inspector-head">
+          <span class="inspector-kicker">Selected body</span>
+          <span class="inspector-live" id="inspector-state">awake</span>
+        </div>
+        <div class="inspector-title">
+          <span class="inspector-icon" id="inspector-icon">▣</span>
+          <b id="inspector-name">—</b>
+        </div>
+        <div class="inspector-grid">
+          <div><span>Mass</span><b id="inspect-mass">—</b></div>
+          <div><span>Velocity</span><b id="inspect-velocity">—</b></div>
+          <div><span>Position</span><b id="inspect-position">—</b></div>
+          <div><span>Rotation</span><b id="inspect-rotation">—</b></div>
+          <div><span>Material</span><b id="inspect-material">—</b></div>
+          <div><span>Colliders</span><b id="inspect-colliders">—</b></div>
+          <div><span>Health</span><b id="inspect-health">—</b></div>
+          <div><span>Details</span><b id="inspect-extra">—</b></div>
+        </div>
+      </aside>
+
+      <section class="build-panel" id="build-panel" hidden aria-label="Build controls">
+        <div class="build-head">
+          <div>
+            <span class="inspector-kicker">Build mode</span>
+            <b id="build-selected">Select an object</b>
+          </div>
+          <button class="mini-toggle cursor-target" id="btn-snap" data-cursor-label="Toggle grid snapping" aria-pressed="true">Snap on</button>
+        </div>
+        <div class="build-row">
+          <label class="build-grid-label">Grid
+            <select id="build-grid" aria-label="Grid size">
+              <option value="0.1">0.1 m</option>
+              <option value="0.25">0.25 m</option>
+              <option value="0.5" selected>0.5 m</option>
+              <option value="1">1 m</option>
+            </select>
+          </label>
+          <button class="ghost-btn cursor-target" data-build-action="focus" data-cursor-label="Focus selected object" disabled>Focus</button>
+        </div>
+        <div class="build-label">Nudge <small>X / Z</small></div>
+        <div class="build-grid-controls">
+          <button class="build-key cursor-target" data-build-action="left" data-cursor-label="Move left" aria-label="Move left" disabled>←</button>
+          <button class="build-key cursor-target" data-build-action="forward" data-cursor-label="Move forward" aria-label="Move forward" disabled>↑</button>
+          <button class="build-key cursor-target" data-build-action="back" data-cursor-label="Move back" aria-label="Move back" disabled>↓</button>
+          <button class="build-key cursor-target" data-build-action="right" data-cursor-label="Move right" aria-label="Move right" disabled>→</button>
+        </div>
+        <div class="build-label">Transform</div>
+        <div class="build-actions">
+          <button class="ghost-btn cursor-target" data-build-action="rotate-left" data-cursor-label="Rotate left" disabled>↺ 15°</button>
+          <button class="ghost-btn cursor-target" data-build-action="rotate-right" data-cursor-label="Rotate right" disabled>↻ 15°</button>
+          <button class="ghost-btn cursor-target" data-build-action="scale-down" data-cursor-label="Scale down" disabled>− Size</button>
+          <button class="ghost-btn cursor-target" data-build-action="scale-up" data-cursor-label="Scale up" disabled>+ Size</button>
+          <button class="ghost-btn cursor-target" data-build-action="duplicate" data-cursor-label="Duplicate selected object" disabled>Duplicate</button>
+          <button class="ghost-btn danger cursor-target" data-build-action="delete" data-cursor-label="Delete selected object" disabled>Delete</button>
+        </div>
+        <p class="build-help">Click an object to select it. Moves snap to the grid while Snap is on.</p>
+      </section>
+
       <div class="toolbar" id="toolbar" role="toolbar" aria-label="Tools">
         <div id="gooey-tools" class="gooey-tool-slot"></div>
         <div class="toolbar-sep"></div>
@@ -98,21 +167,41 @@
       <div class="hint" id="hint"></div>
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-      <div class="help" id="help" hidden>
-        <div class="help-chrome" id="help-chrome" aria-hidden="true"></div>
+      <div class="modal" id="save-panel" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="save-title">
+          <div class="modal-head">
+            <h2 id="save-title">World saves</h2>
+            <button class="help-close cursor-target" id="save-close" data-cursor-label="Close saves" aria-label="Close saves">✕</button>
+          </div>
+          <p class="modal-copy">Each slot stores every object's position, rotation, size and colour, plus velocity, running engines and world gravity.</p>
+          <div class="save-create">
+            <input id="save-name" type="text" maxlength="48" placeholder="Name this world…" autocomplete="off" aria-label="Save name" />
+            <button class="primary cursor-target" id="save-create" data-cursor-label="Save current world">Save world</button>
+          </div>
+          <div class="save-list" id="save-list"></div>
+          <div class="save-footer">
+            <button class="ghost-btn cursor-target" id="save-export" data-cursor-label="Export world as JSON">Export JSON</button>
+            <button class="ghost-btn cursor-target" id="save-import-trigger" data-cursor-label="Import a world JSON">Import JSON</button>
+            <input id="save-import" type="file" accept=".json,application/json" hidden />
+          </div>
+        </div>
+      </div>
+
+      <div class="help" id="help" hidden role="dialog" aria-modal="true" aria-labelledby="help-title">
         <div class="help-card">
           <button class="help-close cursor-target" id="help-close" data-cursor-label="Close guide" aria-label="Close help">✕</button>
-          <h2 class="visually-hidden">Welcome to the playground</h2>
-          <div
-            id="help-particle"
-            class="help-particle cursor-target"
-            data-cursor-label="Burst particles"
-            aria-hidden="true"
-          ></div>
-          <p class="help-lead">
-            Spawn anything, grab it, hurl it. Stack, smash, detonate. There is no goal — just physics.
-          </p>
-          <div class="help-grid">
+          <header class="help-intro">
+            <h2 id="help-title">A physics sandbox with 196 objects and no scoreboard.</h2>
+            <p class="help-lead">
+              Pick an object from the catalog and click a surface to drop it. Left-drag to grab it,
+              then release while moving to throw. Joints, wheels and blast impulses run through
+              Rapier on a fixed 1/60 s step, so stacks settle the same way every time.
+            </p>
+          </header>
+          <div class="help-body">
+            <section class="help-controls" aria-label="Controls">
+              <h3>Controls</h3>
+              <div class="help-grid">
             <div><kbd>Left click</kbd><span>Use current tool</span></div>
             <div><kbd>Right drag</kbd><span>Orbit camera</span></div>
             <div><kbd>Middle drag</kbd><span>Pan camera</span></div>
@@ -121,16 +210,70 @@
             <div><kbd>S</kbd><span>Spawn tool</span></div>
             <div><kbd>B</kbd><span>Blast tool</span></div>
             <div><kbd>X</kbd><span>Delete tool</span></div>
+            <div><kbd>V</kbd><span>Build mode</span></div>
             <div><kbd>F</kbd><span>Fire / start vehicle</span></div>
+            <div><kbd>WASD</kbd><span>Drive while in a vehicle</span></div>
             <div><kbd>Space</kbd><span>Pause physics</span></div>
             <div><kbd>T</kbd><span>Slow motion</span></div>
             <div><kbd>C</kbd><span>Clear world</span></div>
             <div><kbd>R</kbd><span>Reset camera</span></div>
             <div><kbd>H</kbd><span>Toggle this help</span></div>
             <div><kbd>/</kbd><span>Search catalog</span></div>
-            <div><kbd>WASD</kbd><span>Pan camera</span></div>
+            <div><kbd>WASD</kbd><span>Pan camera when not driving</span></div>
+            <div><kbd>Ctrl+Z</kbd><span>Undo last edit</span></div>
+            <div><kbd>Ctrl+Shift+Z</kbd><span>Redo edit</span></div>
+            <div><kbd>Ctrl+S</kbd><span>Saves &amp; JSON export</span></div>
+              </div>
+            </section>
+            <aside class="help-aside">
+              <section>
+                <h3>This build</h3>
+                <p>
+                  196 catalog entries across ten categories, capped at 900 rigid bodies. Geometry is
+                  instanced by shape and material; physics runs at a fixed 60 Hz with up to four
+                  substeps per frame.
+                </p>
+              </section>
+              <section>
+                <h3>Where worlds are saved</h3>
+                <p>
+                  World saves live in this browser's localStorage. This build has no accounts, no
+                  server-side storage and no analytics script. Export a world to JSON if you want a
+                  copy outside the browser.
+                </p>
+                <p class="help-legal">
+                  Needs legal review before launch: update this paragraph if analytics, accounts or
+                  error reporting are added to the deployed build.
+                </p>
+              </section>
+              <section class="help-studio">
+                <h3>Who runs this</h3>
+                <div class="help-photo-slot" role="img" aria-label="Placeholder for a real team or workspace photo">
+                  [TEAM PHOTO: real studio or workspace, replace before launch]
+                </div>
+                <dl class="help-facts">
+                  <div><dt>Studio</dt><dd>[STUDIO OR DEVELOPER NAME]</dd></div>
+                  <div><dt>Maintainer</dt><dd>[MAINTAINER NAME]</dd></div>
+                  <div><dt>Based in</dt><dd>[CITY, COUNTRY]</dd></div>
+                  <div><dt>Address</dt><dd>[VERIFIED STREET ADDRESS]</dd></div>
+                  <div><dt>Phone</dt><dd>[LOCAL PHONE NUMBER]</dd></div>
+                  <div><dt>Email</dt><dd>[CONTACT EMAIL]</dd></div>
+                </dl>
+                <p class="help-legal">
+                  Every bracketed value above is a placeholder. Replace it with the registered
+                  business details before publishing.
+                </p>
+              </section>
+              <p class="help-source">
+                <a href="https://github.com/divitgangrade-lab/Sandbox3d" target="_blank" rel="noreferrer noopener">Source on GitHub</a>
+                <span aria-hidden="true">·</span> MIT licence
+              </p>
+            </aside>
           </div>
-          <button class="primary cursor-target" id="help-start" data-cursor-label="Start playing">Start playing</button>
+          <div class="help-foot">
+            <button class="primary cursor-target" id="help-start" data-cursor-label="Start playing">Start playing</button>
+            <p>Nothing here is permanent. Clear the world and start over.</p>
+          </div>
         </div>
       </div>
 

@@ -6,6 +6,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import { buildPlan, planBounds } from './builders';
 import type {
+  BodyPoseSnapshot,
   BuildPlan,
   PlannedBody,
   PlannedJoint,
@@ -89,9 +90,11 @@ export class SimWorld {
   private groundCollider: RAPIER.Collider | null = null;
   private paused = false;
   private speed = 1;
+  private gravity: number;
 
   constructor(options: SimWorldOptions = {}) {
-    this.world = new RAPIER.World(rv([0, options.gravity ?? GRAVITY, 0]));
+    this.gravity = options.gravity ?? GRAVITY;
+    this.world = new RAPIER.World(rv([0, this.gravity, 0]));
     this.world.timestep = FIXED_DT;
     this.eventQueue = new RAPIER.EventQueue(true);
     this.maxBodies = options.maxBodies ?? MAX_BODIES;
@@ -137,6 +140,92 @@ export class SimWorld {
     this.speed = clamp(scale, 0.05, 2);
   }
 
+  get gravityValue(): number {
+    return this.gravity;
+  }
+
+  /** Change world gravity without rebuilding bodies or losing the scene. */
+  setGravity(value: number): void {
+    if (!Number.isFinite(value)) return;
+    this.gravity = clamp(value, -30, 30);
+    this.world.gravity = { x: 0, y: this.gravity, z: 0 };
+  }
+
+  /** Current poses of every physical body, in entity-local body order. */
+  getBodyPoses(entity: SimEntity, includeVelocity = false): BodyPoseSnapshot[] {
+    return entity.bodies.map((simBody) => {
+      const t = simBody.body.translation();
+      const q = simBody.body.rotation();
+      const pose: BodyPoseSnapshot = {
+        position: [t.x, t.y, t.z],
+        rotation: [q.x, q.y, q.z, q.w],
+      };
+      if (includeVelocity) {
+        const v = simBody.body.linvel();
+        const a = simBody.body.angvel();
+        pose.linearVelocity = [v.x, v.y, v.z];
+        pose.angularVelocity = [a.x, a.y, a.z];
+      }
+      return pose;
+    });
+  }
+
+  /** Restore exact body poses (save/load and undo), including optional motion. */
+  applyBodyPoses(entity: SimEntity, poses: readonly BodyPoseSnapshot[]): void {
+    if (entity.removed) return;
+    entity.bodies.forEach((simBody, index) => {
+      const pose = poses[index];
+      if (!pose) return;
+      simBody.body.setTranslation(rv(pose.position), true);
+      simBody.body.setRotation(qv(pose.rotation), true);
+      if (pose.linearVelocity) simBody.body.setLinvel(rv(pose.linearVelocity), true);
+      else simBody.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      if (pose.angularVelocity) simBody.body.setAngvel(rv(pose.angularVelocity), true);
+      else simBody.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    });
+    if (entity.standing) {
+      entity.standPose = this.getBodyPoses(entity);
+    }
+  }
+
+  /** Teleport one entity using its primary body as the reference point. */
+  setEntityTransform(entity: SimEntity, position: Vec3, rotation?: Quat): void {
+    if (entity.removed) return;
+    const primaryIndex = Math.max(
+      0,
+      entity.bodies.findIndex((body) => body.primary),
+    );
+    const primary = entity.bodies[primaryIndex]?.body;
+    if (!primary) return;
+    const currentPos = primary.translation();
+    const currentRot = primary.rotation();
+    const dx = position[0] - currentPos.x;
+    const dy = position[1] - currentPos.y;
+    const dz = position[2] - currentPos.z;
+    const oldQ: Quat = [currentRot.x, currentRot.y, currentRot.z, currentRot.w];
+    const newQ: Quat = rotation ?? oldQ;
+    const deltaQ = quatMul(newQ, quatInverse(oldQ));
+    for (const simBody of entity.bodies) {
+      const t = simBody.body.translation();
+      const offset: Vec3 = [t.x - currentPos.x, t.y - currentPos.y, t.z - currentPos.z];
+      const rotated = V3.rotate(deltaQ, offset);
+      simBody.body.setTranslation(
+        { x: position[0] + rotated[0], y: position[1] + rotated[1], z: position[2] + rotated[2] },
+        true,
+      );
+      const q = simBody.body.rotation();
+      const bodyQ: Quat = [q.x, q.y, q.z, q.w];
+      const moved = quatMul(deltaQ, bodyQ);
+      simBody.body.setRotation(qv(moved), true);
+      simBody.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      simBody.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    }
+    void dx;
+    void dy;
+    void dz;
+    if (entity.standing) entity.standPose = this.getBodyPoses(entity);
+  }
+
   onRemove(listener: (entity: SimEntity) => void): () => void {
     this.removeListeners.add(listener);
     return () => this.removeListeners.delete(listener);
@@ -175,10 +264,55 @@ export class SimWorld {
     this.simTime += dt;
     this.applyForceFields(dt);
     this.applyBuoyancy(dt);
+    this.stabilizeRagdolls(dt);
     this.processFuses(dt);
     this.world.step(this.eventQueue);
     this.processContacts();
     this.cleanup();
+  }
+
+  /**
+   * A light-weight balance controller for untouched ragdolls. Every body is pulled toward the
+   * pose it was spawned in; feet still collide, hits still transfer impulse, and disabling the
+   * controller on a disturbance lets the joints behave like a normal ragdoll.
+   */
+  private stabilizeRagdolls(dt: number): void {
+    const stiffness = 92;
+    const damping = 15;
+    const rotational = 26;
+    for (const entity of this.entityStore.values()) {
+      if (entity.def.kind !== 'ragdoll' || !entity.standing || entity.held || !entity.standPose) continue;
+      if (this.simTime - entity.createdAt > 0.08) {
+        entity.bodies.forEach((simBody, index) => {
+          const target = entity.standPose?.[index];
+          if (!target || !simBody.body.isDynamic()) return;
+          const p = simBody.body.translation();
+          const v = simBody.body.linvel();
+          const mass = Math.max(simBody.body.mass(), 0.05);
+          const impulse = [
+            ((target.position[0] - p.x) * stiffness - v.x * damping) * mass * dt,
+            (((target.position[1] - p.y) * stiffness - v.y * damping) - this.gravity) * mass * dt,
+            ((target.position[2] - p.z) * stiffness - v.z * damping) * mass * dt,
+          ] as const;
+          simBody.body.applyImpulse(rv(impulse), true);
+
+          // Torso, hips and head stay level; limbs follow through the spherical joints.
+          if (index === 0 || index === 1 || index === 2) {
+            const q = simBody.body.rotation();
+            const current: Quat = [q.x, q.y, q.z, q.w];
+            const delta = quatMul(target.rotation, quatInverse(current));
+            const w = clamp(delta[3], -1, 1);
+            const angle = 2 * Math.acos(w);
+            if (angle > 1e-4) {
+              const sin = Math.sqrt(Math.max(0, 1 - w * w));
+              const axis: Vec3 = sin > 1e-4 ? [delta[0] / sin, delta[1] / sin, delta[2] / sin] : [0, 0, 0];
+              const turn = Math.min(angle, 0.55) * rotational * mass * dt;
+              simBody.body.applyTorqueImpulse(rv(V3.scale(axis, turn)), true);
+            }
+          }
+        });
+      }
+    }
   }
 
   private processFuses(dt: number): void {
@@ -268,6 +402,12 @@ export class SimWorld {
       for (const handle of handles) {
         const entity = this.colliderToEntity.get(handle);
         if (!entity || entity.removed) continue;
+        if (entity.standing && force > 34) {
+          const otherHandle = handles[0] === handle ? handles[1] : handles[0];
+          const otherEntity = this.colliderToEntity.get(otherHandle);
+          const groundContact = otherHandle === this.groundCollider?.handle;
+          if (!groundContact && otherEntity !== entity) entity.standing = false;
+        }
         if (force < entity.contactThreshold) continue;
         if (
           entity.def.behaviors?.destructible &&
@@ -340,6 +480,8 @@ export class SimWorld {
       nextFire: 0,
       isProjectile: def.tags?.includes('projectile') ?? false,
       contactThreshold: Infinity,
+      standing: def.kind === 'ragdoll',
+      standPose: null,
     };
 
     this.entityStore.set(entity.id, entity);
@@ -360,6 +502,7 @@ export class SimWorld {
       }
       this.applyInitialVelocity(entity, options);
       this.configureContactEvents(entity);
+      if (entity.standing) entity.standPose = this.getBodyPoses(entity);
     } catch (error) {
       this.remove(entity);
       throw error;
@@ -511,6 +654,11 @@ export class SimWorld {
       const base = behaviors.explosive.triggerThreshold ?? 24;
       threshold = Math.min(threshold, base + mass * Math.abs(GRAVITY) * 1.5);
     }
+    if (entity.def.kind === 'ragdoll') {
+      // Contact events let us notice a real shove and disable the balance controller. Ground
+      // support is filtered out in processContacts so standing still is not treated as a hit.
+      threshold = Math.min(threshold, 28);
+    }
     entity.contactThreshold = threshold;
     if (!Number.isFinite(threshold)) return;
     for (const simBody of entity.bodies) {
@@ -615,6 +763,7 @@ export class SimWorld {
       }
       if (closest > radius) continue;
       const falloff = Math.max(0, 1 - closest / radius);
+      if (entity.def.kind === 'ragdoll') entity.standing = false;
       for (const simBody of entity.bodies) {
         if (!simBody.body.isDynamic()) continue;
         const p = simBody.body.translation();
@@ -814,10 +963,47 @@ export class SimWorld {
     entity.engineOn = on;
     for (const joint of entity.motorJoints) {
       if (!joint.isValid()) continue;
-      joint.configureMotorVelocity(on ? config.maxSpeed : 0, config.motorForce);
+      joint.configureMotorVelocity(on ? config.maxSpeed * 0.22 : 0, config.motorForce);
       joint.setMotorMaxForce(config.motorForce * 400);
     }
     return true;
+  }
+
+  /**
+   * Throttle and steering for a driven vehicle. W/S set the motor target, A/D apply a yaw impulse
+   * scaled by current speed so a parked car cannot pirouette in place.
+   */
+  driveVehicle(entity: SimEntity, throttle: number, steer: number, dt = 1 / 60): void {
+    const config = entity.def.vehicle;
+    if (!config || entity.removed || entity.motorJoints.length === 0) return;
+    const speed = clamp(config.maxSpeed * clamp(throttle, -1, 1), -config.maxSpeed, config.maxSpeed);
+    for (const joint of entity.motorJoints) {
+      if (!joint.isValid()) continue;
+      joint.configureMotorVelocity(speed, config.motorForce);
+      joint.setMotorMaxForce(config.motorForce * 400);
+    }
+    const chassis = entity.bodies[0]?.body;
+    if (!chassis) return;
+    const q = chassis.rotation();
+    const forward = V3.rotate([q.x, q.y, q.z, q.w], [0, 0, 1]);
+    const v = chassis.linvel();
+    const forwardSpeed = v.x * forward[0] + v.z * forward[2];
+    const mass = Math.max(chassis.mass(), 0.1);
+    const throttleValue = clamp(throttle, -1, 1);
+    // Wheel motors alone are torque-limited on heavy chassis; a modest engine assist keeps the
+    // speed response predictable while throttle/steering still come from real physics.
+    const engineImpulse = throttleValue * mass * 7.2 * clamp(dt, 0, 0.05);
+    if (Math.abs(forwardSpeed) < config.maxSpeed || forwardSpeed * throttleValue < 0) {
+      chassis.applyImpulse(
+        { x: forward[0] * engineImpulse, y: 0, z: forward[2] * engineImpulse },
+        true,
+      );
+    }
+    const planarSpeed = Math.hypot(v.x, v.z);
+    if (planarSpeed < 0.35 || Math.abs(steer) < 0.01) return;
+    const responsiveness = clamp(planarSpeed / Math.max(config.maxSpeed, 1), 0.18, 0.85);
+    const yaw = -clamp(steer, -1, 1) * responsiveness * mass * 0.34;
+    chassis.applyTorqueImpulse({ x: 0, y: yaw, z: 0 }, true);
   }
 
   toggleVehicleEngine(entity: SimEntity): boolean {

@@ -3,20 +3,27 @@
 import * as THREE from 'three';
 import { registry } from '../catalog';
 import type { ObjectDef } from '../catalog/types';
-import { halfExtents } from '../catalog/shapes';
-import { clamp, type Vec3 } from '../core/math';
+import { clamp, quatFromY, quatMul, type Vec3 } from '../core/math';
+import { entityWorldBounds } from '../sim/bounds';
 import { initPhysics } from '../sim/physics';
-import { SimWorld } from '../sim/SimWorld';
+import { SimWorld, entityPosition, entityRotation } from '../sim/SimWorld';
 import { SimGrabber } from '../sim/grabber';
 import type { RayHit, SimEntity } from '../sim/types';
+import {
+  parseWorldSnapshot,
+  restoreWorld,
+  serializeWorldSnapshot,
+  snapshotWorld,
+} from '../sim/persistence';
+import { WorldHistory } from '../sim/history';
 import { SceneRenderer } from '../render/scene';
 import { GhostPreview, HoverHighlight } from '../render/ghost';
 import { OrbitCamera } from './OrbitCamera';
 import { Input } from './input';
-import { UI, type Tool } from '../ui/ui';
+import { UI, type BuildAction, type Tool } from '../ui/ui';
+import { SaveStore } from './saveStore';
+import { downloadText } from './download';
 import { mountTopNav, type GooeyNavController } from '../ui/gooeyNavMount';
-import { mountLiquidChrome, type LiquidChromeController } from '../ui/liquidChromeMount';
-import { mountParticleText, type ParticleTextController } from '../ui/particleTextMount';
 import { mountTargetCursor, type TargetCursorController } from '../ui/targetCursorMount';
 
 interface GrabSample {
@@ -29,6 +36,7 @@ const TOOL_HINTS: Record<Tool, string> = {
   spawn: 'Click a surface to spawn the selected object. Scroll to zoom, right-drag to orbit.',
   blast: 'Click anywhere to detonate a blast. Chain reactions are encouraged.',
   delete: 'Click an object to remove it from the world.',
+  build: 'Build mode: click an object to select it, then nudge, rotate, scale or duplicate it.',
 };
 
 export class SandboxGame {
@@ -38,8 +46,6 @@ export class SandboxGame {
   private input!: Input;
   private ui!: UI;
   private nav!: GooeyNavController;
-  private liquidChrome: LiquidChromeController | null = null;
-  private helpParticle: ParticleTextController | null = null;
   private targetCursor!: TargetCursorController;
   private grabber!: SimGrabber;
   private ghost!: GhostPreview;
@@ -59,6 +65,13 @@ export class SandboxGame {
   private grabDepth = 8;
   private grabSamples: GrabSample[] = [];
   private hoverEntity: SimEntity | null = null;
+  private selectedEntity: SimEntity | null = null;
+  private drivingEntity: SimEntity | null = null;
+  private snapEnabled = true;
+  private gridSize = 0.5;
+  private inspectTimer = 0;
+  private history!: WorldHistory;
+  private readonly saveStore = new SaveStore();
 
   constructor() {
     const canvas = document.getElementById('scene');
@@ -91,31 +104,28 @@ export class SandboxGame {
       onScale: (scale) => {
         this.scale = scale;
       },
+      onUndo: () => this.undo(),
+      onRedo: () => this.redo(),
+      onSavesOpened: () => this.refreshSaves(),
+      onSaveWorld: (name) => this.saveWorld(name),
+      onLoadSave: (id) => this.loadSave(id),
+      onDeleteSave: (id) => this.deleteSave(id),
+      onExportSave: () => this.exportWorld(),
+      onImportSave: (text) => this.importWorld(text),
+      onGravity: (value) => {
+        this.sim.setGravity(value);
+        this.ui.setHint(`Gravity ${value.toFixed(1)} m/s²`);
+      },
+      onBuildAction: (action) => this.buildAction(action),
+      onToggleSnap: () => {
+        this.snapEnabled = !this.snapEnabled;
+        this.ui.setSnap(this.snapEnabled);
+      },
+      onGridSize: (size) => {
+        this.gridSize = size;
+      },
       onHelpChange: (open) => {
         this.nav?.setActive(open ? 2 : 0);
-        if (open) {
-          const chromeHost = document.getElementById('help-chrome');
-          if (chromeHost && !this.liquidChrome) {
-            try {
-              this.liquidChrome = mountLiquidChrome(chromeHost);
-            } catch (error) {
-              console.error('[Sandbox3D] LiquidChrome backdrop failed to mount', error);
-            }
-          }
-          const particleHost = document.getElementById('help-particle');
-          if (particleHost && !this.helpParticle) {
-            try {
-              this.helpParticle = mountParticleText(particleHost);
-            } catch (error) {
-              console.error('[Sandbox3D] ParticleText headline failed to mount', error);
-            }
-          }
-        } else {
-          this.liquidChrome?.dispose();
-          this.liquidChrome = null;
-          this.helpParticle?.dispose();
-          this.helpParticle = null;
-        }
         if (!open) {
           try {
             localStorage.setItem('sandbox3d.helpSeen', '1');
@@ -146,6 +156,24 @@ export class SandboxGame {
     this.ui.setHint(TOOL_HINTS.spawn);
     this.seedScene();
     this.scene.bridge.sync();
+    this.history = new WorldHistory(
+      () => snapshotWorld(this.sim),
+      (snapshot) => {
+        const result = restoreWorld(this.sim, snapshot, (id) => registry.get(id));
+        this.afterWorldRestore();
+        if (result.skipped.length > 0) {
+          this.ui.toast(
+            `Skipped ${result.skipped.length} object${result.skipped.length === 1 ? '' : 's'} from an older catalog`,
+            'warn',
+          );
+        }
+      },
+    );
+    this.syncHistoryUi();
+    this.ui.setGravity(this.sim.gravityValue);
+    this.ui.setSnap(this.snapEnabled);
+    this.ui.setGridSize(this.gridSize);
+    this.ui.setSaveSlots(this.saveStore.list());
 
     this.input.onPointerDown(this.handlePointerDown);
     this.input.onPointerUp(this.handlePointerUp);
@@ -175,10 +203,6 @@ export class SandboxGame {
 
   dispose(): void {
     this.stop();
-    this.liquidChrome?.dispose();
-    this.liquidChrome = null;
-    this.helpParticle?.dispose();
-    this.helpParticle = null;
     this.targetCursor.dispose();
     this.ui.dispose();
     this.nav.dispose();
@@ -197,8 +221,9 @@ export class SandboxGame {
     this.lastFrame = now;
     const dt = clamp(rawDt, 0, 0.05);
 
-    this.camera.update(this.input, dt);
     this.handleKeys();
+    this.updateVehicle(dt);
+    this.camera.update(this.input, dt);
 
     if (this.grabber.isGrabbing) {
       this.updateGrab();
@@ -214,23 +239,37 @@ export class SandboxGame {
     this.scene.render(this.camera.camera, this.scene.fx.shakeOffset);
 
     this.updateStats(rawDt, dt);
+    this.updateInspector(dt);
     this.input.endFrame();
     this.raf = requestAnimationFrame(this.frame);
   };
 
   private handleKeys(): void {
     const pressed = (code: string) => this.input.wasPressed(code);
-    if (pressed('KeyH')) this.ui.showHelp(!this.ui.isHelpOpen);
     if (pressed('Escape')) {
-      if (this.ui.isHelpOpen) this.ui.showHelp(false);
+      if (this.ui.isSaveOpen) this.ui.openSaves(false);
+      else if (this.ui.isHelpOpen) this.ui.showHelp(false);
       else if (this.grabber.isGrabbing) this.releaseGrab(false);
     }
-    if (this.ui.isHelpOpen) return;
+    if (this.ui.isOverlayOpen) return;
 
+    const modifier = this.input.ctrlKey || this.input.metaKey;
+    if (modifier && pressed('KeyZ')) {
+      if (this.input.shiftKey) this.redo();
+      else this.undo();
+      return;
+    }
+    if (modifier && pressed('KeyS')) {
+      this.ui.openSaves(true);
+      return;
+    }
+
+    if (pressed('KeyH')) this.ui.showHelp(!this.ui.isHelpOpen);
     if (pressed('KeyG')) this.setTool('grab');
     if (pressed('KeyS')) this.setTool('spawn');
     if (pressed('KeyB')) this.setTool('blast');
     if (pressed('KeyX')) this.setTool('delete');
+    if (pressed('KeyV')) this.setTool('build');
     if (pressed('KeyF')) this.useActive();
     if (pressed('Space')) this.togglePause();
     if (pressed('KeyT')) this.toggleSlow();
@@ -240,7 +279,7 @@ export class SandboxGame {
   }
 
   private readonly handlePointerDown = (): void => {
-    if (this.ui.isHelpOpen) return;
+    if (this.ui.isOverlayOpen) return;
     this.nav?.setActive(0);
     const hit = this.pick();
 
@@ -271,12 +310,13 @@ export class SandboxGame {
         this.canvas.style.cursor = 'grabbing';
         this.ui.setDragTip(true, this.input.clientX, this.input.clientY);
         this.ui.setHint(
-          `Holding ${hit.entity.def.name} — release to throw${hit.entity.def.behaviors?.weapon ? ' · F to fire' : ''}`,
+          `Holding ${hit.entity.def.name}. Release to throw${hit.entity.def.behaviors?.weapon ? ', or press F to fire' : ''}.`,
         );
         break;
       }
       case 'blast': {
         if (!hit) return;
+        this.recordHistory('Blast');
         this.sim.explodeAt(
           [hit.point[0], Math.max(hit.point[1], 0.15), hit.point[2]],
           7,
@@ -284,6 +324,7 @@ export class SandboxGame {
           150,
           '#ff9a3d',
         );
+        this.syncHistoryUi();
         break;
       }
       case 'delete': {
@@ -291,18 +332,34 @@ export class SandboxGame {
           this.ui.toast('Click an object to delete it', 'warn');
           return;
         }
+        this.recordHistory(`Delete ${hit.entity.def.name}`);
         const t = hit.entity.bodies[0]?.body.translation();
         if (t) this.scene.fx.burst([t.x, t.y, t.z], hit.entity.color, 14, 3, 7, 0.6);
         this.sim.remove(hit.entity);
+        this.forgetEntity(hit.entity.id);
+        this.syncHistoryUi();
         this.ui.setHint(TOOL_HINTS.delete);
+        break;
+      }
+      case 'build': {
+        if (!hit?.entity) {
+          this.selectedEntity = null;
+          this.ui.setBuildSelection(null);
+          this.ui.setHint('Build mode: click an object to select it');
+          return;
+        }
+        this.selectedEntity = hit.entity;
+        this.ui.setBuildSelection(hit.entity.def.name);
+        this.ui.setHint(`${hit.entity.def.name} selected · nudge, rotate, scale or duplicate it`);
         break;
       }
     }
   };
 
   private readonly handlePointerUp = (event: PointerEvent): void => {
-    if (event.button !== 0) return;
-    if (this.grabber.isGrabbing) this.releaseGrab(true);
+    // pointercancel has no reliable button value; any terminal pointer event releases a grab.
+    if (event.type !== 'pointercancel' && event.button !== 0) return;
+    if (this.grabber.isGrabbing) this.releaseGrab(event.type !== 'pointercancel');
   };
 
   private updateGrab(): void {
@@ -342,10 +399,33 @@ export class SandboxGame {
   }
 
   private updateHover(): void {
+    if (this.ui.isOverlayOpen) {
+      this.ghost.hide();
+      this.hover.hide();
+      this.hoverEntity = null;
+      return;
+    }
+    if (this.selectedEntity?.removed) this.selectedEntity = null;
     if (this.grabber.isGrabbing) {
       this.ghost.hide();
       this.hover.hide();
       this.hoverEntity = null;
+      return;
+    }
+
+    if (this.tool === 'build') {
+      this.ghost.hide();
+      const hit = this.pick();
+      this.hoverEntity = hit?.entity ?? null;
+      const target = this.hoverEntity ?? this.selectedEntity;
+      if (target && !target.removed) {
+        const info = this.highlightFor(target);
+        this.hover.show(info.center, info.radius, '#b9a6ff');
+        this.canvas.style.cursor = 'pointer';
+      } else {
+        this.hover.hide();
+        this.canvas.style.cursor = 'default';
+      }
       return;
     }
 
@@ -379,39 +459,12 @@ export class SandboxGame {
   }
 
   private highlightFor(entity: SimEntity): { center: Vec3; radius: number } {
-    let minX = Infinity;
-    let minY = Infinity;
-    let minZ = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    let maxZ = -Infinity;
-    for (const simBody of entity.bodies) {
-      const t = simBody.body.translation();
-      for (const part of simBody.parts) {
-        const [ex, ey, ez] = halfExtents(part.shape);
-        const x = t.x + part.localPos[0];
-        const y = t.y + part.localPos[1];
-        const z = t.z + part.localPos[2];
-        minX = Math.min(minX, x - ex);
-        minY = Math.min(minY, y - ey);
-        minZ = Math.min(minZ, z - ez);
-        maxX = Math.max(maxX, x + ex);
-        maxY = Math.max(maxY, y + ey);
-        maxZ = Math.max(maxZ, z + ez);
-      }
-    }
-    if (!Number.isFinite(minX)) {
-      const t = entity.bodies[0]?.body.translation();
-      return { center: t ? [t.x, t.y, t.z] : [0, 1, 0], radius: 0.6 };
-    }
-    return {
-      center: [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2],
-      radius: Math.max(0.4, Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) / 2),
-    };
+    const bounds = entityWorldBounds(entity);
+    return { center: bounds.center, radius: bounds.radius };
   }
 
   private useActive(): void {
-    const target = this.grabber.grabbed ?? this.hoverEntity;
+    const target = this.grabber.grabbed ?? this.drivingEntity ?? this.hoverEntity;
     if (!target || target.removed) {
       this.ui.toast('Aim at a weapon or vehicle, or grab one, then press F', 'warn');
       return;
@@ -433,12 +486,28 @@ export class SandboxGame {
       return;
     }
     if (target.def.vehicle) {
-      if (this.sim.toggleVehicleEngine(target)) {
-        this.ui.toast(`Engine ${target.engineOn ? 'on' : 'off'}`, 'good');
+      if (this.drivingEntity && this.drivingEntity !== target) {
+        this.sim.setVehicleEngine(this.drivingEntity, false);
+      }
+      const turnOn = !target.engineOn;
+      if (!this.sim.setVehicleEngine(target, turnOn)) {
+        this.ui.toast('That vehicle has no working motor', 'warn');
+        return;
+      }
+      if (turnOn) {
+        this.drivingEntity = target;
+        this.input.cameraPanEnabled = false;
+        this.camera.follow(entityPosition(target));
+        this.ui.setHint('Driving. W/S throttle, A/D steer, F to stop.');
+        this.ui.toast('Engine on. W/S throttle, A/D steer, F to stop.', 'good');
+      } else {
+        if (this.drivingEntity === target) this.stopDriving();
+        this.ui.setHint('Engine off');
+        this.ui.toast('Engine off', 'info');
       }
       return;
     }
-    this.ui.toast('That object has no trigger — try a gun or a vehicle', 'warn');
+    this.ui.toast('No trigger on that object. Try a gun or a vehicle.', 'warn');
   }
 
   private aimPoint(exclude: SimEntity): Vec3 {
@@ -468,13 +537,17 @@ export class SandboxGame {
   }
 
   private spawnAt(point: Vec3): void {
+    this.recordHistory(`Spawn ${this.selectedDef.name}`);
     try {
       this.sim.spawn(this.selectedDef, { position: point, scale: this.scale });
       this.scene.fx.spawnPuff([point[0], point[1] + 0.1, point[2]]);
       this.ui.setHint(
         `${this.selectedDef.name} spawned. Click again to add more, or grab it to throw.`,
       );
+      this.syncHistoryUi();
     } catch (error) {
+      this.history.discardLast();
+      this.syncHistoryUi();
       this.ui.toast(
         error instanceof Error ? error.message : 'Could not spawn that object',
         'warn',
@@ -497,10 +570,13 @@ export class SandboxGame {
     this.tool = tool;
     if (this.grabber.isGrabbing) this.releaseGrab(false);
     this.ui.setTool(tool);
+    this.ui.setBuild(tool === 'build');
     this.ui.setHint(TOOL_HINTS[tool]);
     this.hover.hide();
     if (tool !== 'spawn') this.ghost.hide();
-    this.canvas.style.cursor = tool === 'grab' ? 'grab' : 'crosshair';
+    this.ui.setBuildSelection(tool === 'build' ? this.selectedEntity?.def.name ?? null : null);
+    this.canvas.style.cursor =
+      tool === 'grab' ? 'grab' : tool === 'build' ? 'default' : 'crosshair';
   }
 
   private togglePause(): void {
@@ -518,17 +594,374 @@ export class SandboxGame {
   }
 
   private clearWorld(): void {
+    if (this.sim.entityCount === 0) {
+      this.ui.toast('The world is already empty', 'info');
+      return;
+    }
+    this.recordHistory('Clear world');
     if (this.grabber.isGrabbing) this.releaseGrab(false);
+    this.stopDriving();
+    this.selectedEntity = null;
     this.sim.clear();
     this.scene.bridge.removeAll();
     this.hover.hide();
     this.ghost.hide();
+    this.ui.setBuildSelection(null);
+    this.ui.setInspector(null);
+    this.syncHistoryUi();
     this.ui.toast('World cleared', 'good');
   }
 
   private resetView(): void {
     this.camera.reset();
     this.ui.toast('Camera reset', 'info');
+  }
+
+  private recordHistory(label: string): void {
+    this.history.record(label);
+  }
+
+  private syncHistoryUi(): void {
+    this.ui.setUndoRedo(
+      this.history.canUndo,
+      this.history.canRedo,
+      this.history.undoLabel,
+      this.history.redoLabel,
+    );
+  }
+
+  private undo(): void {
+    const label = this.history.undo();
+    if (!label) return;
+    this.syncHistoryUi();
+    this.ui.toast(`Undid ${label}`, 'info');
+  }
+
+  private redo(): void {
+    const label = this.history.redo();
+    if (!label) return;
+    this.syncHistoryUi();
+    this.ui.toast(`Redid ${label}`, 'good');
+  }
+
+  private afterWorldRestore(): void {
+    this.grabber.release();
+    this.stopDriving();
+    this.input.cameraPanEnabled = true;
+    this.selectedEntity = null;
+    this.hoverEntity = null;
+    this.hover.hide();
+    this.ghost.hide();
+    this.scene.bridge.sync();
+    this.sim.drainEvents();
+    this.ui.setPaused(this.sim.isPaused);
+    this.ui.setSlow(this.sim.timeScale <= 0.5);
+    this.ui.setGravity(this.sim.gravityValue);
+    this.ui.setBuildSelection(null);
+    this.ui.setInspector(null);
+    this.ui.setHint(TOOL_HINTS[this.tool]);
+    this.inspectTimer = 1;
+    this.syncHistoryUi();
+  }
+
+  private forgetEntity(id: number): void {
+    if (this.selectedEntity?.id === id) {
+      this.selectedEntity = null;
+      this.ui.setBuildSelection(null);
+    }
+    if (this.drivingEntity?.id === id) this.stopDriving();
+    if (this.hoverEntity?.id === id) {
+      this.hoverEntity = null;
+      this.hover.hide();
+      this.ui.setInspector(null);
+    }
+  }
+
+  private stopDriving(): void {
+    this.drivingEntity = null;
+    this.input.cameraPanEnabled = true;
+    this.ui.setHint(TOOL_HINTS[this.tool]);
+  }
+
+  private updateVehicle(dt: number): void {
+    const vehicle = this.drivingEntity;
+    if (!vehicle) return;
+    if (vehicle.removed || !vehicle.engineOn || vehicle.bodies.length === 0) {
+      this.stopDriving();
+      return;
+    }
+    const up = this.input.isDown('KeyW') || this.input.isDown('ArrowUp');
+    const down = this.input.isDown('KeyS') || this.input.isDown('ArrowDown');
+    const left = this.input.isDown('KeyA') || this.input.isDown('ArrowLeft');
+    const right = this.input.isDown('KeyD') || this.input.isDown('ArrowRight');
+    const throttle = (up ? 1 : 0) - (down ? 1 : 0);
+    const steer = (left ? 1 : 0) - (right ? 1 : 0);
+    this.sim.driveVehicle(vehicle, throttle, steer, dt);
+    this.camera.follow(entityPosition(vehicle));
+  }
+
+  private updateInspector(dt: number): void {
+    this.inspectTimer += dt;
+    if (this.inspectTimer < 0.2) return;
+    this.inspectTimer = 0;
+    if (this.tool === 'build') {
+      this.ui.setInspector(null);
+      return;
+    }
+    const target =
+      this.grabber.grabbed ??
+      this.hoverEntity ??
+      (this.selectedEntity && !this.selectedEntity.removed ? this.selectedEntity : null);
+    if (!target || target.removed) {
+      this.ui.setInspector(null);
+      return;
+    }
+    const primary = target.bodies[0]?.body;
+    if (!primary) return;
+    const mass = target.bodies.reduce((sum, simBody) => sum + simBody.body.mass(), 0);
+    const colliders = target.bodies.reduce((sum, simBody) => sum + simBody.parts.length, 0);
+    const v = primary.linvel();
+    const velocity = Math.hypot(v.x, v.y, v.z);
+    const t = primary.translation();
+    const q = primary.rotation();
+    const euler = new THREE.Euler().setFromQuaternion(
+      new THREE.Quaternion(q.x, q.y, q.z, q.w),
+      'YXZ',
+    );
+    const allSleeping = target.bodies.every((simBody) => simBody.body.isSleeping());
+    const state = target.held
+      ? 'held'
+      : target.standing
+        ? 'balanced'
+        : allSleeping
+          ? 'sleeping'
+          : 'awake';
+    const extra: string[] = [];
+    if (target.def.kind === 'vehicle') extra.push(target.engineOn ? 'engine on' : 'engine off');
+    if (target.fuse !== null) extra.push(`fuse ${Math.max(0, target.fuse).toFixed(2)}s`);
+    if (target.def.behaviors?.destructible) extra.push('destructible');
+    if (target.def.behaviors?.weapon) extra.push('weapon');
+    this.ui.setInspector({
+      name: target.def.name,
+      icon: target.def.icon ?? '▣',
+      state,
+      mass,
+      velocity,
+      position: [t.x, t.y, t.z],
+      rotation: [
+        THREE.MathUtils.radToDeg(euler.x),
+        THREE.MathUtils.radToDeg(euler.y),
+        THREE.MathUtils.radToDeg(euler.z),
+      ],
+      material: target.def.material ?? 'mixed',
+      colliders,
+      health: target.def.behaviors?.destructible
+        ? `${Math.max(0, target.hp).toFixed(0)} HP`
+        : '—',
+      extra: extra.join(' · '),
+    });
+  }
+
+  private buildAction(action: BuildAction): void {
+    const entity = this.selectedEntity;
+    if (!entity || entity.removed) {
+      this.ui.toast('Select an object first', 'warn');
+      return;
+    }
+    if (action === 'focus') {
+      this.camera.follow(entityPosition(entity));
+      this.ui.toast(`Focused ${entity.def.name}`, 'info');
+      return;
+    }
+
+    const labels: Record<Exclude<BuildAction, 'focus'>, string> = {
+      left: 'Nudge',
+      right: 'Nudge',
+      forward: 'Nudge',
+      back: 'Nudge',
+      'rotate-left': 'Rotate',
+      'rotate-right': 'Rotate',
+      'scale-down': 'Scale',
+      'scale-up': 'Scale',
+      duplicate: 'Duplicate',
+      delete: 'Delete',
+    };
+    this.recordHistory(`${labels[action]} ${entity.def.name}`);
+    try {
+      const position = entityPosition(entity);
+      const rotation = entityRotation(entity);
+      const step = this.snapEnabled ? this.gridSize : 0.1;
+      switch (action) {
+        case 'left':
+        case 'right':
+        case 'forward':
+        case 'back': {
+          const rawX = position[0] + (action === 'left' ? -step : action === 'right' ? step : 0);
+          const rawZ = position[2] + (action === 'back' ? step : action === 'forward' ? -step : 0);
+          const next: Vec3 = this.snapEnabled
+            ? [Math.round(rawX / step) * step, position[1], Math.round(rawZ / step) * step]
+            : [rawX, position[1], rawZ];
+          this.sim.setEntityTransform(entity, next, rotation);
+          break;
+        }
+        case 'rotate-left':
+        case 'rotate-right': {
+          const angle = (action === 'rotate-left' ? 1 : -1) * (Math.PI / 12);
+          const next = quatMul(quatFromY(angle), rotation);
+          this.sim.setEntityTransform(entity, position, next);
+          break;
+        }
+        case 'scale-down':
+        case 'scale-up': {
+          const nextScale = clamp(
+            entity.scale + (action === 'scale-up' ? 0.1 : -0.1),
+            0.4,
+            3,
+          );
+          if (Math.abs(nextScale - entity.scale) < 1e-4) {
+            this.history.discardLast();
+            this.syncHistoryUi();
+            this.ui.toast('Scale limit reached', 'warn');
+            return;
+          }
+          this.rescaleEntity(entity, nextScale);
+          break;
+        }
+        case 'duplicate': {
+          const next: Vec3 = [position[0] + step, position[1], position[2]];
+          const copy = this.sim.spawn(entity.def, {
+            position: next,
+            rotation,
+            scale: entity.scale,
+            color: entity.color,
+            silent: true,
+          });
+          this.sim.setEntityTransform(copy, next, rotation);
+          copy.hp = entity.hp;
+          copy.fuse = entity.fuse;
+          this.selectedEntity = copy;
+          this.scene.fx.spawnPuff([next[0], next[1] + 0.1, next[2]]);
+          break;
+        }
+        case 'delete': {
+          const primary = entity.bodies[0]?.body.translation();
+          if (primary) {
+            this.scene.fx.burst([primary.x, primary.y, primary.z], entity.color, 14, 3, 7, 0.6);
+          }
+          this.sim.remove(entity);
+          this.selectedEntity = null;
+          this.ui.setBuildSelection(null);
+          break;
+        }
+      }
+    } catch (error) {
+      this.history.discardLast();
+      this.syncHistoryUi();
+      this.ui.toast(
+        error instanceof Error ? error.message : 'That build edit could not be applied',
+        'warn',
+      );
+      return;
+    }
+    this.scene.bridge.sync();
+    this.syncHistoryUi();
+    this.ui.setBuildSelection(this.selectedEntity?.def.name ?? null);
+  }
+
+  private rescaleEntity(entity: SimEntity, scale: number): void {
+    const position = entityPosition(entity);
+    const rotation = entityRotation(entity);
+    const wasStanding = entity.standing;
+    const copy = this.sim.spawn(entity.def, {
+      position,
+      rotation,
+      scale,
+      color: entity.color,
+      silent: true,
+    });
+    this.sim.setEntityTransform(copy, position, rotation);
+    copy.hp = entity.hp;
+    copy.fuse = entity.fuse;
+    if (entity.def.kind === 'ragdoll' && !wasStanding) {
+      copy.standing = false;
+      copy.standPose = null;
+    }
+    if (entity.engineOn && entity.def.vehicle) this.sim.setVehicleEngine(copy, true);
+    this.sim.remove(entity);
+    this.selectedEntity = copy;
+  }
+
+  private refreshSaves(): void {
+    try {
+      this.ui.setSaveSlots(this.saveStore.list());
+    } catch (error) {
+      this.ui.toast(error instanceof Error ? error.message : 'Could not read saves', 'warn');
+    }
+  }
+
+  private saveWorld(name: string): void {
+    try {
+      const summary = this.saveStore.save(name, snapshotWorld(this.sim));
+      this.refreshSaves();
+      this.ui.clearSaveName();
+      this.ui.toast(`Saved “${summary.name}”`, 'good');
+    } catch (error) {
+      this.ui.toast(error instanceof Error ? error.message : 'Could not save this world', 'warn');
+    }
+  }
+
+  private loadSave(id: string): void {
+    try {
+      const snapshot = this.saveStore.load(id);
+      this.recordHistory('Load save');
+      const result = restoreWorld(this.sim, snapshot, (defId) => registry.get(defId));
+      this.afterWorldRestore();
+      this.ui.openSaves(false);
+      this.ui.toast(
+        `Loaded ${result.restored} object${result.restored === 1 ? '' : 's'}${result.skipped.length ? ` · skipped ${result.skipped.length}` : ''}`,
+        result.skipped.length > 0 ? 'warn' : 'good',
+      );
+    } catch (error) {
+      this.ui.toast(error instanceof Error ? error.message : 'Could not load that save', 'warn');
+    }
+  }
+
+  private deleteSave(id: string): void {
+    try {
+      this.saveStore.delete(id);
+      this.refreshSaves();
+      this.ui.toast('Save deleted', 'info');
+    } catch (error) {
+      this.ui.toast(error instanceof Error ? error.message : 'Could not delete that save', 'warn');
+    }
+  }
+
+  private exportWorld(): void {
+    try {
+      const snapshot = snapshotWorld(this.sim);
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      downloadText(`sandbox3d-${stamp}.json`, serializeWorldSnapshot(snapshot));
+      this.ui.openSaves(false);
+      this.ui.toast('World exported', 'good');
+    } catch (error) {
+      this.ui.toast(error instanceof Error ? error.message : 'Could not export the world', 'warn');
+    }
+  }
+
+  private importWorld(text: string): void {
+    try {
+      const snapshot = parseWorldSnapshot(text);
+      this.recordHistory('Import world');
+      const result = restoreWorld(this.sim, snapshot, (defId) => registry.get(defId));
+      this.afterWorldRestore();
+      this.ui.openSaves(false);
+      this.ui.toast(
+        `Imported ${result.restored} object${result.restored === 1 ? '' : 's'}${result.skipped.length ? ` · skipped ${result.skipped.length}` : ''}`,
+        result.skipped.length > 0 ? 'warn' : 'good',
+      );
+    } catch (error) {
+      this.ui.toast(error instanceof Error ? error.message : 'Could not import that file', 'warn');
+    }
   }
 
   private processEvents(): void {
@@ -549,8 +982,10 @@ export class SandboxGame {
             'warn',
           );
           break;
-        case 'spawn':
         case 'remove':
+          this.forgetEntity(event.entityId);
+          break;
+        case 'spawn':
           break;
       }
     }

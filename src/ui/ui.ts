@@ -1,19 +1,34 @@
-/** Catalog, toolbars, help, stats and toast UI. Markup lives in app.html. */
+/** Catalog, toolbars, inspector, saves, help, stats and toast UI. Markup lives in app.html. */
 
 import type { Category, ObjectDef } from '../catalog/types';
 import { CATEGORY_META, CATEGORY_ORDER, type ObjectRegistry } from '../catalog/registry';
 import { mountGooeyNav, type GooeyNavController } from './gooeyNavMount';
+import type { SaveSummary } from '../game/saveStore';
+import type { InspectorInfo } from './inspector';
 
-export type Tool = 'grab' | 'spawn' | 'blast' | 'delete';
+export type Tool = 'grab' | 'spawn' | 'blast' | 'delete' | 'build';
+export type BuildAction =
+  | 'left'
+  | 'right'
+  | 'forward'
+  | 'back'
+  | 'rotate-left'
+  | 'rotate-right'
+  | 'scale-down'
+  | 'scale-up'
+  | 'duplicate'
+  | 'delete'
+  | 'focus';
 
 const TOOL_ITEMS: { id: Tool; label: string; icon: string; badge: string; title: string }[] = [
   { id: 'grab', label: 'Grab', icon: '✋', badge: 'G', title: 'Grab & throw (G)' },
   { id: 'spawn', label: 'Spawn', icon: '✦', badge: 'S', title: 'Spawn selected object (S)' },
   { id: 'blast', label: 'Blast', icon: '✸', badge: 'B', title: 'Create an explosion (B)' },
-  { id: 'delete', label: 'Delete', icon: '⌫', badge: 'X', title: 'Delete object (X)' }
+  { id: 'delete', label: 'Delete', icon: '⌫', badge: 'X', title: 'Delete object (X)' },
+  { id: 'build', label: 'Build', icon: '⚙', badge: 'V', title: 'Build & transform objects (V)' },
 ];
 
-const TOOLS = ['#b8ff5a', '#ffb347', '#ff8a5c', '#ff6b6b'];
+const TOOLS = ['#b8ff5a', '#d8b46a', '#c9a06a', '#d98c86', '#9fbfa6'];
 
 export interface UiCallbacks {
   onSelect: (defId: string) => void;
@@ -24,6 +39,18 @@ export interface UiCallbacks {
   onResetView: () => void;
   onScale: (scale: number) => void;
   onHelpChange: (open: boolean) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  onSavesOpened: () => void;
+  onSaveWorld: (name: string) => void;
+  onLoadSave: (id: string) => void;
+  onDeleteSave: (id: string) => void;
+  onExportSave: () => void;
+  onImportSave: (text: string) => void;
+  onGravity: (gravity: number) => void;
+  onBuildAction: (action: BuildAction) => void;
+  onToggleSnap: () => void;
+  onGridSize: (size: number) => void;
 }
 
 function byId<T extends HTMLElement>(id: string): T {
@@ -53,6 +80,30 @@ export class UI {
   private readonly dragTipEl = byId<HTMLDivElement>('drag-tip');
   private readonly pauseBtn = byId<HTMLButtonElement>('btn-pause');
   private readonly slowBtn = byId<HTMLButtonElement>('btn-slow');
+  private readonly undoBtn = byId<HTMLButtonElement>('btn-undo');
+  private readonly redoBtn = byId<HTMLButtonElement>('btn-redo');
+  private readonly gravityEl = byId<HTMLInputElement>('gravity-slider');
+  private readonly gravityValue = byId<HTMLOutputElement>('gravity-value');
+  private readonly inspectorEl = byId<HTMLElement>('inspector');
+  private readonly inspectorName = byId<HTMLElement>('inspector-name');
+  private readonly inspectorIcon = byId<HTMLElement>('inspector-icon');
+  private readonly inspectorState = byId<HTMLElement>('inspector-state');
+  private readonly inspectMass = byId<HTMLElement>('inspect-mass');
+  private readonly inspectVelocity = byId<HTMLElement>('inspect-velocity');
+  private readonly inspectPosition = byId<HTMLElement>('inspect-position');
+  private readonly inspectRotation = byId<HTMLElement>('inspect-rotation');
+  private readonly inspectMaterial = byId<HTMLElement>('inspect-material');
+  private readonly inspectColliders = byId<HTMLElement>('inspect-colliders');
+  private readonly inspectHealth = byId<HTMLElement>('inspect-health');
+  private readonly inspectExtra = byId<HTMLElement>('inspect-extra');
+  private readonly buildPanel = byId<HTMLElement>('build-panel');
+  private readonly buildSelected = byId<HTMLElement>('build-selected');
+  private readonly snapBtn = byId<HTMLButtonElement>('btn-snap');
+  private readonly gridSelect = byId<HTMLSelectElement>('build-grid');
+  private readonly savePanel = byId<HTMLDivElement>('save-panel');
+  private readonly saveName = byId<HTMLInputElement>('save-name');
+  private readonly saveList = byId<HTMLDivElement>('save-list');
+  private readonly saveImport = byId<HTMLInputElement>('save-import');
   private categoryNav: GooeyNavController | null = null;
   private toolNav: GooeyNavController | null = null;
   private activeCategory: Category | 'all' = 'all';
@@ -87,7 +138,7 @@ export class UI {
         label: entry.label,
         icon: entry.icon,
         badge: String(entry.count),
-        title: entry.id === 'all' ? 'Every object' : CATEGORY_META[entry.id].hint
+        title: entry.id === 'all' ? 'Every object' : CATEGORY_META[entry.id].hint,
       })),
       initialActiveIndex: 0,
       className: 'gooey-nav--catalog',
@@ -105,7 +156,7 @@ export class UI {
         if (!entry) return;
         this.activeCategory = entry.id;
         this.renderItems();
-      }
+      },
     });
   }
 
@@ -127,7 +178,7 @@ export class UI {
       onSelect: (index) => {
         const tool = TOOL_ITEMS[index];
         if (tool) this.callbacks.onTool(tool.id);
-      }
+      },
     });
   }
 
@@ -147,6 +198,54 @@ export class UI {
     byId('help-start').addEventListener('click', () => this.showHelp(false));
     this.helpEl.addEventListener('click', (event) => {
       if (event.target === this.helpEl) this.showHelp(false);
+    });
+
+    this.undoBtn.addEventListener('click', () => this.callbacks.onUndo());
+    this.redoBtn.addEventListener('click', () => this.callbacks.onRedo());
+    byId('btn-save').addEventListener('click', () => this.openSaves(true));
+    this.gravityEl.addEventListener('input', () => {
+      const value = Number(this.gravityEl.value);
+      this.setGravity(value);
+      this.callbacks.onGravity(value);
+    });
+    this.snapBtn.addEventListener('click', () => this.callbacks.onToggleSnap());
+    this.gridSelect.addEventListener('change', () => {
+      this.callbacks.onGridSize(Number(this.gridSelect.value));
+    });
+    for (const button of this.buildPanel.querySelectorAll<HTMLButtonElement>('[data-build-action]')) {
+      button.addEventListener('click', () => {
+        const action = button.dataset.buildAction as BuildAction | undefined;
+        if (action) this.callbacks.onBuildAction(action);
+      });
+    }
+
+    this.savePanel.addEventListener('click', (event) => {
+      if (event.target === this.savePanel) this.openSaves(false);
+    });
+    byId('save-close').addEventListener('click', () => this.openSaves(false));
+    byId('save-create').addEventListener('click', () => {
+      const fallback = `World ${new Intl.DateTimeFormat(undefined, {
+        month: 'short',
+        day: 'numeric',
+      }).format(new Date())}`;
+      this.callbacks.onSaveWorld(this.saveName.value.trim() || fallback);
+    });
+    this.saveName.addEventListener('keydown', (event) => {
+      // Enter also confirms an IME composition; only an explicit submit should save.
+      if (event.key === 'Enter' && !event.isComposing) {
+        byId<HTMLButtonElement>('save-create').click();
+      }
+    });
+    byId('save-export').addEventListener('click', () => this.callbacks.onExportSave());
+    byId('save-import-trigger').addEventListener('click', () => this.saveImport.click());
+    this.saveImport.addEventListener('change', () => {
+      const file = this.saveImport.files?.[0];
+      if (!file) return;
+      file
+        .text()
+        .then((text) => this.callbacks.onImportSave(text))
+        .catch(() => this.toast('Could not read that file', 'warn'));
+      this.saveImport.value = '';
     });
   }
 
@@ -236,6 +335,135 @@ export class UI {
     this.statsEntities.textContent = String(stats.entities);
     this.statsBodies.textContent = String(stats.bodies);
     this.statsCalls.textContent = String(stats.calls);
+  }
+
+  setUndoRedo(canUndo: boolean, canRedo: boolean, undoLabel: string | null, redoLabel: string | null): void {
+    this.undoBtn.disabled = !canUndo;
+    this.redoBtn.disabled = !canRedo;
+    this.undoBtn.title = canUndo ? `Undo ${undoLabel ?? ''} (Ctrl+Z)`.trim() : 'Nothing to undo';
+    this.redoBtn.title = canRedo ? `Redo ${redoLabel ?? ''} (Ctrl+Shift+Z)`.trim() : 'Nothing to redo';
+  }
+
+  setGravity(value: number): void {
+    this.gravityEl.value = String(value);
+    this.gravityValue.value = value.toFixed(1);
+  }
+
+  setInspector(info: InspectorInfo | null): void {
+    if (!info) {
+      this.inspectorEl.hidden = true;
+      return;
+    }
+    this.inspectorEl.hidden = false;
+    this.inspectorName.textContent = info.name;
+    this.inspectorIcon.textContent = info.icon;
+    this.inspectorState.textContent = info.state;
+    this.inspectMass.textContent = `${info.mass.toFixed(1)} kg`;
+    this.inspectVelocity.textContent = `${info.velocity.toFixed(1)} m/s`;
+    this.inspectPosition.textContent = info.position.map((v) => v.toFixed(1)).join(', ');
+    this.inspectRotation.textContent = `${info.rotation.map((v) => Math.round(v)).join('° / ')}°`;
+    this.inspectMaterial.textContent = info.material;
+    this.inspectColliders.textContent = String(info.colliders);
+    this.inspectHealth.textContent = info.health;
+    this.inspectExtra.textContent = info.extra || '—';
+  }
+
+  setBuild(active: boolean): void {
+    this.buildPanel.hidden = !active;
+    if (active) {
+      this.inspectorEl.hidden = true;
+      this.buildSelected.textContent = 'Select an object';
+    }
+  }
+
+  setBuildSelection(name: string | null): void {
+    this.buildSelected.textContent = name ?? 'Select an object';
+    for (const button of this.buildPanel.querySelectorAll<HTMLButtonElement>('[data-build-action]')) {
+      button.disabled = !name;
+    }
+  }
+
+  setSnap(on: boolean): void {
+    this.snapBtn.textContent = on ? 'Snap on' : 'Snap off';
+    this.snapBtn.classList.toggle('active', on);
+    this.snapBtn.setAttribute('aria-pressed', String(on));
+  }
+
+  setGridSize(size: number): void {
+    this.gridSelect.value = String(size);
+  }
+
+  setSaveSlots(slots: SaveSummary[]): void {
+    const fragment = document.createDocumentFragment();
+    if (slots.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'save-empty';
+      empty.textContent = 'No saved worlds yet. Give this one a name above.';
+      fragment.append(empty);
+    }
+    for (const slot of slots) {
+      const row = document.createElement('div');
+      row.className = 'save-row';
+      const meta = document.createElement('div');
+      meta.className = 'save-meta';
+      const name = document.createElement('b');
+      name.textContent = slot.name;
+      const detail = document.createElement('span');
+      const date = new Intl.DateTimeFormat(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      }).format(new Date(slot.savedAt));
+      detail.textContent = `${date} · ${slot.objects} object${slot.objects === 1 ? '' : 's'}`;
+      meta.append(name, detail);
+      const actions = document.createElement('div');
+      actions.className = 'save-row-actions';
+      const load = document.createElement('button');
+      load.type = 'button';
+      load.className = 'ghost-btn cursor-target';
+      load.textContent = 'Load';
+      load.dataset.cursorLabel = `Load ${slot.name}`;
+      load.addEventListener('click', () => this.callbacks.onLoadSave(slot.id));
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'ghost-btn danger cursor-target';
+      remove.textContent = 'Delete';
+      remove.dataset.cursorLabel = `Delete ${slot.name}`;
+      remove.addEventListener('click', () => {
+        if (window.confirm(`Delete “${slot.name}”? This cannot be undone.`)) {
+          this.callbacks.onDeleteSave(slot.id);
+        }
+      });
+      actions.append(load, remove);
+      row.append(meta, actions);
+      fragment.append(row);
+    }
+    this.saveList.replaceChildren(fragment);
+  }
+
+  openSaves(open: boolean): void {
+    if (this.savePanel.hidden === !open) return;
+    this.savePanel.hidden = !open;
+    document.body.classList.toggle('save-open', open);
+    if (open) {
+      this.showHelp(false);
+      this.searchEl.blur();
+      this.callbacks.onSavesOpened();
+      window.setTimeout(() => this.saveName.focus(), 60);
+    }
+  }
+
+  clearSaveName(): void {
+    this.saveName.value = '';
+  }
+
+  get isSaveOpen(): boolean {
+    return !this.savePanel.hidden;
+  }
+
+  get isOverlayOpen(): boolean {
+    return this.isHelpOpen || this.isSaveOpen;
   }
 
   setHint(text: string): void {

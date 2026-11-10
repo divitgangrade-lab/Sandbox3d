@@ -21,7 +21,7 @@ function melee(
     colors: PALETTES.metal,
     parts,
     tags: ['weapon', 'melee', 'tool'],
-    description: `${name} — grab it and swing`,
+    description: `${name}. Grab it and swing.`,
     ...extra,
   };
 }
@@ -55,7 +55,7 @@ function gun(
     colors: PALETTES.metal,
     parts,
     tags: ['weapon', 'gun', 'ranged', 'tool', ...(o.tags ?? [])],
-    description: o.description ?? `${name} — press F to fire`,
+    description: o.description ?? `${name}. Press F to fire.`,
     behaviors: {
       weapon: {
         projectile: o.projectile,

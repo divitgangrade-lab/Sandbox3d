@@ -11,6 +11,9 @@ and the tool modes. Their links get cursor targets from `src/ui/gooeyNavMount.ts
 
 | Control | Cursor label |
 | --- | --- |
+| Undo | `Undo` |
+| Redo | `Redo` |
+| Saves / export / import | `Saves and export` |
 | Pause / resume | `Pause / resume` |
 | Slow motion | `Slow motion` |
 | Clear world | `Clear world` |
@@ -37,7 +40,7 @@ The 196 object cards are still plain buttons; their labels are derived from the 
 
 ## Toolbar
 
-The four tool modes are a GooeyNav mounted by `src/ui/ui.ts`; their shortcut keys appear as badges
+The five tool modes are a GooeyNav mounted by `src/ui/ui.ts`; their shortcut keys appear as badges
 on wide screens and are hidden on compact screens. **Reset view** remains a separate one-shot button
 because it is an action, not a toggleable mode.
 
@@ -47,14 +50,42 @@ because it is an action, not a toggleable mode.
 | Spawn | `Spawn tool` |
 | Blast | `Blast tool` |
 | Delete | `Delete tool` |
+| Build | `Build tool` |
 | Reset view | `Reset view` |
+
+## World controls
+
+| Control | Cursor label |
+| --- | --- |
+| Gravity slider | native range control |
+| Build snap toggle | `Toggle grid snapping` |
+| Grid size select | native select |
+| Build nudge arrows | `Move left` / `Move forward` / `Move back` / `Move right` |
+| Rotate left / right | `Rotate left` / `Rotate right` |
+| Scale down / up | `Scale down` / `Scale up` |
+| Duplicate | `Duplicate selected object` |
+| Delete selected | `Delete selected object` |
+| Focus selected | `Focus selected object` |
+
+The physics inspector is read-only; it has no clickable controls. It follows the hovered object,
+and appears only on viewports wide enough for the left-side panel.
+
+## Saves
+
+| Control | Cursor label |
+| --- | --- |
+| Save current world | `Save current world` |
+| Load slot | `Load <name>` |
+| Delete slot | `Delete <name>` |
+| Export JSON | `Export world as JSON` |
+| Import JSON | `Import a world JSON` |
+| Close saves | `Close saves` |
 
 ## Guide overlay
 
 | Control | Cursor label |
 | --- | --- |
 | Close X | `Close guide` |
-| Welcome particle headline | `Burst particles` |
 | Start playing | `Start playing` |
 
 ## Intentional cursor-target exceptions
@@ -65,12 +96,6 @@ viewport:
 - **3D canvas** (`#scene`): clicking it uses the active tool. Its native tool cursor is replaced by
   the custom cursor dot.
 - **Guide backdrop** (`.help` outside the card): clicking dismisses the guide.
-- **Guide atmosphere** (`.help-chrome` / the LiquidChrome canvas): pointer movement disturbs the
-  liquid, but it is a decorative full-viewport layer rather than a control. Bracketing it would cover
-  the whole screen.
-
-The Welcome particle headline is also decorative, but it has a contained click burst, so it is
-bracketed like a normal control and labeled `Burst particles`.
 
 Touch devices do not mount TargetCursor; the component only activates for fine pointers. The custom
 cursor uses a max z-index and is pointer-events: none, so it never blocks the controls underneath.

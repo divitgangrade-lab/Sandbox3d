@@ -7,7 +7,7 @@ import {
   DEFAULT_CAMERA_POLAR,
   DEFAULT_CAMERA_TARGET,
 } from '../core/config';
-import { clamp } from '../core/math';
+import { clamp, type Vec3 } from '../core/math';
 import type { Input } from './input';
 
 export class OrbitCamera {
@@ -50,6 +50,25 @@ export class OrbitCamera {
 
     const panSpeed = this.desiredDistance * 0.62 * dt;
     this.computeBasis();
+    if (!input.cameraPanEnabled) {
+      this.desiredTarget.y = clamp(this.desiredTarget.y, 0.25, 14);
+      this.desiredTarget.x = clamp(this.desiredTarget.x, -90, 90);
+      this.desiredTarget.z = clamp(this.desiredTarget.z, -90, 90);
+      const smoothDriving = 1 - Math.exp(-dt * 12);
+      this.target.lerp(this.desiredTarget, smoothDriving);
+      this.distance += (this.desiredDistance - this.distance) * smoothDriving;
+      this.azimuth += (this.desiredAzimuth - this.azimuth) * smoothDriving;
+      this.polar += (this.desiredPolar - this.polar) * smoothDriving;
+      const spDriving = Math.sin(this.polar);
+      this.camera.position.set(
+        this.target.x + this.distance * spDriving * Math.sin(this.azimuth),
+        this.target.y + this.distance * Math.cos(this.polar),
+        this.target.z + this.distance * spDriving * Math.cos(this.azimuth),
+      );
+      this.camera.lookAt(this.target);
+      this.camera.updateMatrixWorld();
+      return;
+    }
     if (input.isDown('KeyW') || input.isDown('ArrowUp')) {
       this.desiredTarget.addScaledVector(this.forward, panSpeed);
     }
@@ -102,6 +121,16 @@ export class OrbitCamera {
   pointOnRay(ndcX: number, ndcY: number, distance: number): THREE.Vector3 {
     const { origin, direction } = this.ray(ndcX, ndcY);
     return origin.addScaledVector(direction, distance);
+  }
+
+  /** Keep the orbit centre on a moving object (used while driving). */
+  follow(point: Vec3): void {
+    this.desiredTarget.set(point[0], Math.max(point[1], 0.8), point[2]);
+  }
+
+  /** Current orbit focus, exposed for building and vehicle helpers. */
+  get focus(): Vec3 {
+    return [this.target.x, this.target.y, this.target.z];
   }
 
   reset(): void {

@@ -25,6 +25,13 @@ export interface SimBody {
   primary: boolean;
 }
 
+export interface BodyPoseSnapshot {
+  position: Vec3;
+  rotation: Quat;
+  linearVelocity?: Vec3;
+  angularVelocity?: Vec3;
+}
+
 export interface SimEntity {
   id: number;
   def: ObjectDef;
@@ -42,6 +49,10 @@ export interface SimEntity {
   nextFire: number;
   isProjectile: boolean;
   contactThreshold: number;
+  /** Ragdolls spawn balanced and stay balanced until something disturbs them. */
+  standing: boolean;
+  /** Resting world-space skeleton used by the balance controller. */
+  standPose: BodyPoseSnapshot[] | null;
 }
 
 export type SimEvent =

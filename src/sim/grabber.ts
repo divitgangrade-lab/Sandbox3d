@@ -65,6 +65,8 @@ export class SimGrabber {
     this.body = body;
     this.entityRef = entity;
     entity.held = true;
+    // A grab is a deliberate disturbance: stop pretending the ragdoll is still balanced.
+    entity.standing = false;
     return true;
   }
 

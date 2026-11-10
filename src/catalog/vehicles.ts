@@ -45,7 +45,7 @@ function car(id: string, name: string, o: CarOptions): ObjectDef {
     colors: [...o.colors],
     parts,
     tags: ['vehicle', 'drive', ...(o.tags ?? [])],
-    description: o.description ?? `${name} — grab it, or press F to start the engine`,
+    description: o.description ?? `${name}. Grab it, or press F to start the engine.`,
     vehicle: {
       wheels: o.wheels,
       maxSpeed: o.maxSpeed,

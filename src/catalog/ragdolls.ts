@@ -24,7 +24,7 @@ function dummy(id: string, name: string, o: DummyOptions): ObjectDef {
     material: 'flesh',
     colors: [...(o.colors ?? PALETTES.flesh)],
     tags: ['ragdoll', 'humanoid', 'dummy', ...(o.tags ?? [])],
-    description: o.description ?? `${name} — 11 jointed limbs, ready for abuse`,
+    description: o.description ?? `${name}. Eleven jointed limbs.`,
     ragdoll: {
       height: o.height ?? 1.72,
       limbScale: o.limb ?? 1,

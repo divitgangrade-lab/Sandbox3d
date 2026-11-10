@@ -6,7 +6,7 @@
 import type { ClothConfig, ObjectDef, PrimitiveShape, ShapePart, SoftConfig } from '../catalog/types';
 import type { MaterialName } from '../catalog/materials';
 import { DEFAULT_COLOR } from '../catalog/materials';
-import { box, capsule, halfExtents, rotatedExtents } from '../catalog/shapes';
+import { ball, box, capsule, halfExtents, rotatedExtents } from '../catalog/shapes';
 import type { BuildPlan, PlannedBody, PlannedJoint, PlannedPart } from './types';
 import type { ShapeBounds } from '../catalog/types';
 import { quatFromEuler, quatMul, V3, type Quat, type Rng, type Vec3 } from '../core/math';
@@ -73,31 +73,70 @@ function buildRagdoll(def: ObjectDef, baseColor: string): BuildPlan {
   const h = (cfg.height ?? 1.72) / 1.72;
   const limb = cfg.limbScale ?? 1;
   const headColor = cfg.headColor ?? colorAt(def, 0, baseColor);
+  const shoeColor = def.tags?.includes('metal') ? '#4f5864' : '#2b3038';
   const bodies: PlannedBody[] = [];
   const joints: PlannedJoint[] = [];
 
-  const pushBody = (pos: Vec3, shape: PrimitiveShape | ShapePart, color: string, primary = false) => {
+  const pushBody = (
+    pos: Vec3,
+    shape: PrimitiveShape | ShapePart,
+    color: string,
+    primary = false,
+    extras: PlannedPart[] = [],
+  ) => {
     const primitive: PrimitiveShape = 'shape' in shape ? shape.shape : shape;
     bodies.push({
       pos,
-      parts: [part(primitive, { color })],
+      parts: [part(primitive, { color }), ...extras],
       primary,
     });
     return bodies.length - 1;
   };
 
-  const hips = pushBody([0, 0.9 * h, 0], capsule(0.145 * limb, 0.14 * h), colorAt(def, 0, baseColor));
+  const hips = pushBody(
+    [0, 0.9 * h, 0],
+    capsule(0.145 * limb, 0.14 * h),
+    colorAt(def, 0, baseColor),
+    false,
+    [
+      part(box(0.26 * limb, 0.055 * limb, 0.18 * limb).shape, {
+        pos: [0, 0.02 * h, 0],
+        color: '#303844',
+      }),
+    ],
+  );
   const torso = pushBody(
     [0, 1.18 * h, 0],
     capsule(0.165 * limb, 0.38 * h),
     colorAt(def, 1, baseColor),
     true,
+    [
+      part(box(0.17 * limb, 0.1 * limb, 0.035 * limb).shape, {
+        pos: [0, 0.07 * h, 0.15 * limb],
+        color: '#252d38',
+      }),
+    ],
   );
   const headShape: PrimitiveShape =
     cfg.head === 'box'
       ? { kind: 'box', hx: 0.125 * limb, hy: 0.14 * limb, hz: 0.125 * limb }
       : { kind: 'sphere', r: 0.135 * limb };
-  const head = pushBody([0, 1.51 * h, 0], headShape, headColor);
+  const head = pushBody(
+    [0, 1.51 * h, 0],
+    headShape,
+    headColor,
+    false,
+    [
+      part(box(0.15 * limb, 0.035 * limb, 0.022 * limb).shape, {
+        pos: [0, 0.035 * h, 0.12 * limb],
+        color: '#20262f',
+      }),
+      part(ball(0.036 * limb).shape, {
+        pos: [0, -0.015 * h, 0.132 * limb],
+        color: headColor,
+      }),
+    ],
+  );
 
   const upperArms: number[] = [];
   const lowerArms: number[] = [];
@@ -116,6 +155,13 @@ function buildRagdoll(def: ObjectDef, baseColor: string): BuildPlan {
         [side * 0.255 * h, 1.0 * h, 0],
         capsule(0.048 * limb, 0.24 * h),
         colorAt(def, 3, baseColor),
+        false,
+        [
+          part(ball(0.058 * limb).shape, {
+            pos: [0, -0.2 * h, 0.01],
+            color: headColor,
+          }),
+        ],
       ),
     );
     upperLegs.push(
@@ -130,6 +176,13 @@ function buildRagdoll(def: ObjectDef, baseColor: string): BuildPlan {
         [side * 0.105 * h, 0.33 * h, 0],
         capsule(0.068 * limb, 0.28 * h),
         colorAt(def, 5, baseColor),
+        false,
+        [
+          part(box(0.12 * limb, 0.06 * limb, 0.2 * limb).shape, {
+            pos: [0, -0.21 * h, 0.045 * limb],
+            color: shoeColor,
+          }),
+        ],
       ),
     );
   }
